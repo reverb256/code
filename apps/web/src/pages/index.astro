@@ -2,29 +2,9 @@
 import Base from "../layouts/Base.astro";
 ---
 <Base title="Twig">
-  <main>
+  <main class="container-prose">
     <h1 class="type-3xl weight-bold">Twig</h1>
     <p class="type-base">Hello, World!</p>
-    <a href="/playground" class="type-sm">View typography playground →</a>
+    <a href="/playground" class="type-sm link-subtle">View typography playground →</a>
   </main>
 </Base>
-
-<style>
-  main {
-    max-width: 65ch;
-    margin-inline: auto;
-    padding: 2rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  a {
-    opacity: 0.6;
-    transition: opacity 0.15s;
-  }
-
-  a:hover {
-    opacity: 1;
-  }
-</style>

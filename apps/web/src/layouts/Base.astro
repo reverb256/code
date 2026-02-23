@@ -1,9 +1,12 @@
 ---
+import "../styles/global.css";
+
 interface Props {
   title?: string;
+  debug?: boolean;
 }
 
-const { title = "Twig" } = Astro.props;
+const { title = "Twig", debug = false } = Astro.props;
 ---
 <html lang="en">
   <head>
@@ -15,11 +18,7 @@ const { title = "Twig" } = Astro.props;
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&display=swap" rel="stylesheet" />
   </head>
-  <body>
+  <body class:list={[{ debug }]}>
     <slot />
   </body>
 </html>
-
-<style is:global>
-  @import "../styles/typography.css";
-</style>

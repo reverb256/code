@@ -1,16 +1,18 @@
 ---
 import Base from "../layouts/Base.astro";
+import GridOverlay from "../components/GridOverlay.astro";
+import "../styles/playground.css";
 
 const sizes = [
-  { class: "type-5xl", label: "5xl", var: "--type-5xl" },
-  { class: "type-4xl", label: "4xl", var: "--type-4xl" },
-  { class: "type-3xl", label: "3xl", var: "--type-3xl" },
-  { class: "type-2xl", label: "2xl", var: "--type-2xl" },
-  { class: "type-xl", label: "xl", var: "--type-xl" },
-  { class: "type-lg", label: "lg", var: "--type-lg" },
-  { class: "type-base", label: "base", var: "--type-base" },
-  { class: "type-sm", label: "sm", var: "--type-sm" },
-  { class: "type-xs", label: "xs", var: "--type-xs" },
+  { class: "type-5xl", label: "5xl" },
+  { class: "type-4xl", label: "4xl" },
+  { class: "type-3xl", label: "3xl" },
+  { class: "type-2xl", label: "2xl" },
+  { class: "type-xl", label: "xl" },
+  { class: "type-lg", label: "lg" },
+  { class: "type-base", label: "base" },
+  { class: "type-sm", label: "sm" },
+  { class: "type-xs", label: "xs" },
 ];
 
 const weights = [
@@ -23,90 +25,139 @@ const weights = [
   { class: "weight-black", label: "Black", value: "900" },
 ];
 ---
-<Base title="Typography Playground">
-  <main>
-    <header>
-      <h1 class="type-2xl weight-bold">Typography</h1>
-      <p class="type-sm">TX-02 → JetBrains Mono → system mono</p>
+<Base title="Playground" debug>
+  <GridOverlay />
+
+  <section class="grid-container grid-section">
+    <header class="section-header cell-pad">
+      <h1 class="type-2xl weight-bold">Playground</h1>
+      <p class="type-sm">Typography & Grid System</p>
     </header>
+    <nav class="section-body cell-pad playground-nav">
+      <a href="#typography" class="type-sm">Typography</a>
+      <a href="#grid" class="type-sm">Grid</a>
+    </nav>
+  </section>
 
-    <section>
-      <h2 class="type-lg weight-bold">Type Scale</h2>
-      <div class="scale-grid">
-        {sizes.map(({ class: cls, label, var: cssVar }) => (
-          <div class="scale-row">
-            <span class="scale-label type-xs">{label}</span>
-            <span class={cls}>The quick brown fox</span>
-          </div>
-        ))}
+  <section id="typography" class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-xl weight-bold">Type Scale</h2>
+    </div>
+    <div class="section-body--wide cell-pad">
+      {sizes.map(({ class: cls, label }) => (
+        <div class="type-row">
+          <span class="type-label type-xs">{label}</span>
+          <span class={cls}>The quick brown fox</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-xl weight-bold">Weights</h2>
+    </div>
+    <div class="section-body cell-pad">
+      {weights.map(({ class: cls, label, value }) => (
+        <div class="type-row">
+          <span class="type-label type-xs">{value}</span>
+          <span class={`type-lg ${cls}`}>{label}</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section id="grid" class="grid-container grid-section grid-section--spacious border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-xl weight-bold">Grid</h2>
+      <p class="type-sm">5 rails on desktop, 3 on tablet, 1 on mobile</p>
+    </div>
+    <div class="section-body--wide cell-pad">
+      <p class="type-base">This content spans columns 2-4 on desktop using <code class="demo-code">.section-body--wide</code></p>
+    </div>
+  </section>
+
+  <section class="grid-container grid-section grid-demo border-t border-current/10">
+    <div class="col-1 cell-pad rail-tick-start rail-tick-end">
+      <span class="type-xs">1</span>
+    </div>
+    <div class="col-2 cell-pad rail-tick-start rail-tick-end playground-col-2">
+      <span class="type-xs">2</span>
+    </div>
+    <div class="col-3 cell-pad rail-tick-start rail-tick-end playground-col-3">
+      <span class="type-xs">3</span>
+    </div>
+    <div class="col-4 cell-pad rail-tick-start rail-tick-end playground-col-4">
+      <span class="type-xs">4</span>
+    </div>
+    <div class="col-5 cell-pad rail-tick-start rail-tick-end playground-col-5">
+      <span class="type-xs">5</span>
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Spans</h2>
+    </div>
+    <div class="col-span-2 cell-pad demo-cell playground-span-2">
+      <span class="type-xs">span 2</span>
+    </div>
+    <div class="col-span-3 cell-pad demo-cell playground-span-3">
+      <span class="type-xs">span 3</span>
+    </div>
+    <div class="col-full cell-pad demo-cell">
+      <span class="type-xs">full width</span>
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Bleed</h2>
+    </div>
+    <div class="col-full">
+      <div class="full-bleed demo-bleed">
+        <span class="type-xs cell-pad">.full-bleed — extends to viewport edges</span>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section>
-      <h2 class="type-lg weight-bold">Font Weights</h2>
-      <div class="weight-grid">
-        {weights.map(({ class: cls, label, value }) => (
-          <div class="weight-row">
-            <span class="weight-label type-xs">{value}</span>
-            <span class={`type-xl ${cls}`}>{label}</span>
-          </div>
-        ))}
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Images</h2>
+    </div>
+    <div class="section-body cell-pad">
+      <figure class="image-figure">
+        <img src="/branch.svg" alt="Branch illustration" class="image-contained" />
+        <figcaption class="type-xs">.image-contained — fits within column</figcaption>
+      </figure>
+    </div>
+    <div class="section-aside cell-pad">
+      <p class="type-sm">Images can be placed in any grid column using the section roles.</p>
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Bleed Start</h2>
+    </div>
+    <div class="col-1 image-bleed-start">
+      <img src="/branch.svg" alt="Branch illustration" />
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t border-current/10">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Buttons</h2>
+    </div>
+    <div class="section-body cell-pad button-demo">
+      <div class="button-row">
+        <button class="btn btn-solid">Solid</button>
+        <button class="btn btn-outline">Outline</button>
       </div>
-    </section>
-
-    <section>
-      <h2 class="type-lg weight-bold">Combined</h2>
-      <p class="type-3xl weight-thin">Thin 3xl</p>
-      <p class="type-2xl weight-light">Light 2xl</p>
-      <p class="type-xl weight-regular">Regular xl</p>
-      <p class="type-lg weight-medium">Medium lg</p>
-      <p class="type-base weight-semibold">Semibold base</p>
-      <p class="type-sm weight-bold">Bold sm</p>
-      <p class="type-xs weight-black">Black xs</p>
-    </section>
-  </main>
+      <div class="button-row">
+        <button class="btn btn-solid" disabled>Solid Disabled</button>
+        <button class="btn btn-outline" disabled>Outline Disabled</button>
+      </div>
+    </div>
+  </section>
 </Base>
-
-<style>
-  main {
-    max-width: 90rem;
-    margin-inline: auto;
-    padding: 2rem;
-    display: flex;
-    flex-direction: column;
-    gap: 4rem;
-  }
-
-  header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  section {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .scale-grid,
-  .weight-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .scale-row,
-  .weight-row {
-    display: flex;
-    align-items: baseline;
-    gap: 1.5rem;
-  }
-
-  .scale-label,
-  .weight-label {
-    width: 3rem;
-    flex-shrink: 0;
-    opacity: 0.5;
-  }
-</style>
