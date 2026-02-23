@@ -62,7 +62,8 @@
       // Files using unknownAtRules
       "includes": [
         "apps/twig/src/renderer/styles/globals.css",
-        "apps/mobile/global.css"
+        "apps/mobile/global.css",
+        "apps/web/src/styles/globals.css"
       ],
       "linter": {
         "enabled": false
@@ -115,6 +116,22 @@
         "rules": {
           "suspicious": {
             "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      // Web app and UI package use relative imports and path aliases
+      "includes": [
+        "apps/web/src/**/*.ts",
+        "apps/web/src/**/*.tsx",
+        "packages/ui/src/**/*.ts",
+        "packages/ui/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
           }
         }
       }
