@@ -1,0 +1,136 @@
+:root {
+  --color-text: #001627;
+  --color-bg: #FAEEDE;
+  --font-mono: "TX-02", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --type-xs: clamp(0.69rem, 0.65rem + 0.11vi, 0.94rem);
+  --type-sm: clamp(0.83rem, 0.77rem + 0.15vi, 1.13rem);
+  --type-base: clamp(1rem, 0.91rem + 0.22vi, 1.5rem);
+  --type-lg: clamp(1.2rem, 1.04rem + 0.4vi, 2.1rem);
+  --type-xl: clamp(1.44rem, 1.14rem + 0.75vi, 3rem);
+  --type-2xl: clamp(1.73rem, 1.18rem + 1.36vi, 4.5rem);
+  --type-3xl: clamp(2.07rem, 1.07rem + 2.5vi, 7rem);
+  --type-4xl: clamp(2.49rem, 0.69rem + 4.5vi, 11rem);
+  --type-5xl: clamp(2.99rem, -0.26rem + 8.1vi, 17rem);
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.25;
+  --lh-normal: 1.414;
+  --lh-relaxed: 1.65;
+  --lh-loose: 1.8;
+}
+
+@font-face {
+  font-family: "TX-02";
+  src: url("/fonts/TX-02.woff2") format("woff2");
+  font-weight: 100 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TX-02";
+  src: url("/fonts/TX-02-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TX-02";
+  src: url("/fonts/TX-02-Bold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TX-02";
+  src: url("/fonts/TX-02-Black.woff2") format("woff2");
+  font-weight: 800 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-mono);
+  font-size: var(--type-base);
+  line-height: var(--lh-normal);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  min-height: 100dvh;
+}
+
+.type-xs {
+  font-size: var(--type-xs);
+  line-height: var(--lh-normal);
+}
+
+.type-sm {
+  font-size: var(--type-sm);
+  line-height: var(--lh-normal);
+}
+
+.type-base {
+  font-size: var(--type-base);
+  line-height: var(--lh-normal);
+}
+
+.type-lg {
+  font-size: var(--type-lg);
+  line-height: var(--lh-normal);
+}
+
+.type-xl {
+  font-size: var(--type-xl);
+  line-height: var(--lh-snug);
+}
+
+.type-2xl {
+  font-size: var(--type-2xl);
+  line-height: var(--lh-snug);
+}
+
+.type-3xl {
+  font-size: var(--type-3xl);
+  line-height: var(--lh-tight);
+}
+
+.type-4xl {
+  font-size: var(--type-4xl);
+  line-height: var(--lh-tight);
+}
+
+.type-5xl {
+  font-size: var(--type-5xl);
+  line-height: var(--lh-tight);
+}
+
+.weight-thin { font-weight: 100; }
+.weight-light { font-weight: 300; }
+.weight-regular { font-weight: 400; }
+.weight-medium { font-weight: 500; }
+.weight-semibold { font-weight: 600; }
+.weight-bold { font-weight: 700; }
+.weight-black { font-weight: 900; }
+
+.lh-tight { line-height: var(--lh-tight); }
+.lh-snug { line-height: var(--lh-snug); }
+.lh-normal { line-height: var(--lh-normal); }
+.lh-relaxed { line-height: var(--lh-relaxed); }
+.lh-loose { line-height: var(--lh-loose); }
