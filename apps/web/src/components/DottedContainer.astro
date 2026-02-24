@@ -1,0 +1,23 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+const hasTitle = Astro.slots.has("title");
+const hasAction = Astro.slots.has("action");
+---
+
+<div class:list={["dotted-container", className]}>
+  {hasTitle && (
+    <span class="dotted-container-title type-sm">
+      <slot name="title" />
+    </span>
+  )}
+  <slot />
+  {hasAction && (
+    <span class="dotted-container-action">
+      <slot name="action" />
+    </span>
+  )}
+</div>

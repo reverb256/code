@@ -1,6 +1,7 @@
 ---
-import Base from "../layouts/Base.astro";
+import DottedContainer from "../components/DottedContainer.astro";
 import GridOverlay from "../components/GridOverlay.astro";
+import Base from "../layouts/Base.astro";
 import "../styles/playground.css";
 
 const sizes = [
@@ -158,6 +159,28 @@ const weights = [
         <button class="btn btn-solid" disabled>Solid Disabled</button>
         <button class="btn btn-outline" disabled>Outline Disabled</button>
       </div>
+    </div>
+  </section>
+
+  <section class="grid-container grid-section border-t">
+    <div class="section-header cell-pad">
+      <h2 class="type-lg weight-bold">Dotted Container</h2>
+    </div>
+    <div class="section-body cell-pad" style="display: flex; flex-direction: column; gap: 2rem;">
+      <DottedContainer>
+        <span slot="title">Cost calculator</span>
+        <p class="type-base">Content with a title</p>
+      </DottedContainer>
+
+      <DottedContainer>
+        <span slot="title">Case study</span>
+        <p class="type-base">Content with title and action button</p>
+        <a href="#" slot="action">Case study &rarr;</a>
+      </DottedContainer>
+
+      <DottedContainer>
+        <p class="type-base">Content without a title</p>
+      </DottedContainer>
     </div>
   </section>
 </Base>
