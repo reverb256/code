@@ -1,16 +1,30 @@
 ---
 import { getCollection } from "astro:content";
-import Base from "../layouts/Base.astro";
+import Footer from "../components/Footer.astro";
 import GridOverlay from "../components/GridOverlay.astro";
 import Header from "../components/Header.astro";
-import Footer from "../components/Footer.astro";
+import ImagePreview from "../components/ImagePreview.astro";
+import Base from "../layouts/Base.astro";
 
 const posts = (await getCollection("blog")).sort(
-  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
 );
 
 function formatDate(date: Date): string {
-  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const months = [
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+  ];
   const month = months[date.getMonth()];
   const day = String(date.getDate()).padStart(2, "0");
   const year = date.getFullYear();
@@ -29,7 +43,7 @@ function formatDate(date: Date): string {
         <div class="blog-preview-container">
           {posts.map((post, index) => (
             <div class:list={["blog-preview", { active: index === 0 }]} data-preview-index={index}>
-              {post.data.image && <img src={post.data.image} alt="" class="blog-preview-image invertible" />}
+              {post.data.image && <ImagePreview src={post.data.image} />}
             </div>
           ))}
         </div>

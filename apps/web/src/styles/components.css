@@ -227,12 +227,36 @@
 }
 
 .site-header {
+  padding-block: var(--space-sm);
+}
+
+.site-header-inner {
+  grid-column: 1 / 4;
+}
+
+.site-header-container.dotted-container {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-block: var(--space-sm);
-  padding-inline: var(--grid-margin);
-  background-color: var(--color-bg);
+  gap: var(--space-md);
+  padding: 1rem;
+}
+
+.site-header-logo {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.site-header-container .nav-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-sm);
+}
+
+@media (max-width: 1023px) {
+  .site-header-inner {
+    grid-column: 1 / -1;
+  }
 }
 
 .nav-link {

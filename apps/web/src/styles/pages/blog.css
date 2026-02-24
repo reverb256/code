@@ -16,8 +16,6 @@
   width: 100%;
   aspect-ratio: 1;
   margin-top: var(--space-md);
-  border: 1px solid color-mix(in oklab, var(--color-text) 20%, transparent);
-  overflow: hidden;
   display: none;
 }
 
@@ -36,17 +34,21 @@
   opacity: 1;
 }
 
+.blog-preview .image-preview-container {
+  width: 100%;
+  height: 100%;
+}
+
+.blog-preview .dotted-container {
+  padding: 0;
+}
+
 @media (max-width: 1023px) {
   .blog-preview-container {
     display: none;
   }
 }
 
-.blog-preview-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
 
 .blog-list {
   grid-column: 2 / -1;
