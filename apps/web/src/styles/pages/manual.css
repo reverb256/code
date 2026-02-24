@@ -1,0 +1,130 @@
+.manual-nav {
+  grid-column: 1;
+  position: sticky;
+  top: 2rem;
+  align-self: start;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  padding-bottom: 12rem;
+}
+
+.manual-nav-title {
+  margin-bottom: var(--space-md);
+}
+
+.manual-toc {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.manual-toc-chapter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.manual-toc-link {
+  text-decoration: none;
+  color: var(--color-text);
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.25rem;
+}
+
+.manual-toc-link:hover {
+  opacity: 0.7;
+}
+
+.manual-toc-number {
+  color: var(--color-accent);
+}
+
+.manual-toc-sections {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-left: 1.75rem;
+}
+
+.manual-toc-section-link {
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.manual-toc-section-link:hover {
+  opacity: 0.7;
+}
+
+.manual-content {
+  grid-column: 2 / 5;
+}
+
+.manual-intro {
+  margin-bottom: var(--space-xl);
+}
+
+.manual-intro-title {
+  margin-bottom: 1rem;
+}
+
+.manual-intro-divider {
+  height: 3px;
+  background-color: var(--color-accent);
+  margin-block: 2rem;
+}
+
+.manual-chapter {
+  margin-bottom: var(--space-xl);
+}
+
+.manual-chapter-title {
+  margin-bottom: 1rem;
+}
+
+.manual-section-title {
+  margin-top: var(--space-md);
+  margin-bottom: 0.75rem;
+}
+
+.manual-chapter p,
+.manual-chapter ul,
+.manual-chapter ol {
+  margin-bottom: 1rem;
+  opacity: 0.8;
+}
+
+.manual-chapter ul,
+.manual-chapter ol {
+  padding-left: var(--space-md);
+}
+
+.manual-chapter li {
+  margin-bottom: 0.5rem;
+}
+
+.manual-code {
+  background-color: color-mix(in oklab, var(--color-text) 5%, transparent);
+  padding: 1rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.manual-code code {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+@media (max-width: 1023px) {
+  .manual-nav {
+    grid-column: 1 / -1;
+    position: static;
+    margin-bottom: 2rem;
+  }
+
+  .manual-content {
+    grid-column: 1 / -1;
+  }
+}

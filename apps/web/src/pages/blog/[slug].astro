@@ -1,0 +1,78 @@
+---
+import { getCollection, render } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import GridOverlay from "../../components/GridOverlay.astro";
+import Header from "../../components/Header.astro";
+import Footer from "../../components/Footer.astro";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+function formatDate(date: Date): string {
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const month = months[date.getMonth()];
+  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${month}.${day}.${year}`;
+}
+---
+
+<Base title={`${post.data.title} - Twig`}>
+  <GridOverlay />
+  <Header accent />
+
+  <article class="grid-container grid-section grid-section--spacious border-t">
+    <aside class="article-meta cell-pad">
+      <h2 class="type-base weight-medium article-meta-title">{post.data.title}</h2>
+      <dl class="meta-list">
+        <div class="meta-item">
+          <dt class="type-xs meta-label">DATE:</dt>
+          <dd class="type-sm meta-value">{formatDate(post.data.date)}</dd>
+        </div>
+        <div class="meta-item">
+          <dt class="type-xs meta-label">READING TIME:</dt>
+          <dd class="type-sm meta-value">{post.data.readingTime} min</dd>
+        </div>
+        <div class="meta-item">
+          <dt class="type-xs meta-label">WRITTEN BY:</dt>
+          <dd class="type-sm meta-value">Human</dd>
+        </div>
+      </dl>
+    </aside>
+
+    <div class="article-content cell-pad">
+      <h1 class="type-3xl weight-medium article-title" data-article-title>{post.data.title}</h1>
+      <div class="article-body type-base">
+        <Content />
+      </div>
+    </div>
+  </article>
+
+  <Footer />
+</Base>
+
+<script>
+  const mainTitle = document.querySelector('[data-article-title]');
+  const metaTitle = document.querySelector('.article-meta-title');
+
+  if (mainTitle && metaTitle) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          metaTitle.classList.toggle('visible', !entry.isIntersecting);
+        });
+      },
+      { threshold: 0, rootMargin: '-80px 0px 0px 0px' }
+    );
+
+    observer.observe(mainTitle);
+  }
+</script>

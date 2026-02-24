@@ -1,0 +1,42 @@
+---
+title: "8 things we learned building AI agents"
+description: "After months of building agents that actually ship code, here's what surprised us most about reliability, context windows, and why the best agents fail gracefully."
+date: 2026-01-15
+author: "James Hawkins"
+readingTime: 8
+image: "/branch.svg"
+---
+
+After months of building agents that actually ship code, here's what surprised us most about reliability, context windows, and why the best agents fail gracefully.
+
+## 1. Context windows are smaller than you think
+
+When you're building an agent that needs to understand a codebase, you quickly realize that 128k tokens sounds like a lot until you try to fit a real project into it. We learned to be surgical about what context we include.
+
+## 2. Reliability beats intelligence
+
+A slightly dumber agent that works 99% of the time is infinitely more useful than a brilliant one that fails unpredictably. Users don't trust tools that surprise them.
+
+## 3. The best agents fail gracefully
+
+When something goes wrong—and it will—the agent should explain what happened and offer a path forward. Silent failures are the enemy of trust.
+
+## 4. Tool use is harder than it looks
+
+Giving an agent access to tools is easy. Teaching it when and how to use them appropriately is an entirely different challenge.
+
+## 5. Streaming matters more than speed
+
+Users will wait longer for a response if they can see progress. A streaming response that takes 30 seconds feels faster than a batch response that takes 20.
+
+## 6. Prompt engineering is real engineering
+
+We treat our prompts like code: version controlled, tested, and reviewed. The difference between a good prompt and a great one is often the difference between a working agent and a broken one.
+
+## 7. Human oversight isn't optional
+
+Even the best agents make mistakes. Building in checkpoints where humans can review and correct course isn't a limitation—it's a feature.
+
+## 8. The hard part isn't the AI
+
+The hardest challenges we faced weren't about the model. They were about state management, error handling, and building intuitive interfaces. The AI is the easy part.

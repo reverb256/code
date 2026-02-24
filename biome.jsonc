@@ -127,6 +127,28 @@
       }
     },
     {
+      // Web app scripts should not use console - use PostHog for analytics
+      "includes": ["apps/web/src/scripts/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "error"
+          }
+        }
+      }
+    },
+    {
+      // Web app allows relative imports (no path aliases configured)
+      "includes": ["apps/web/src/**/*.ts", "apps/web/src/**/*.astro"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
       // Renderer code should use path aliases
       "includes": [
         "apps/twig/src/renderer/**/*.ts",

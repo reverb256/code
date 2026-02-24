@@ -1,0 +1,27 @@
+---
+interface Props {
+  src: string;
+  alt?: string;
+}
+
+const { src, alt = "" } = Astro.props;
+---
+
+<div class="image-preview">
+  <img src={src} alt={alt} class="image-preview-img invertible" />
+</div>
+
+<style>
+  .image-preview {
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1px solid color-mix(in oklab, var(--color-text) 20%, transparent);
+    overflow: hidden;
+  }
+
+  .image-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+</style>

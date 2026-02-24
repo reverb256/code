@@ -1,0 +1,21 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+
+const links = [
+  { href: "/manual", label: "MANUAL" },
+  { href: "/manual#pricing", label: "PRICING" },
+  { href: "/blog", label: "BLOG" },
+  { href: "/humans", label: "HUMANS" },
+  { href: "https://posthog.com/handbook/", label: "HANDBOOK" },
+];
+---
+
+<nav class:list={["nav-links", className]}>
+  {links.map(link => (
+    <a href={link.href} class="nav-link type-sm">[ {link.label} ]</a>
+  ))}
+</nav>

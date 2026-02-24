@@ -1,0 +1,35 @@
+---
+import NavLinks from "./NavLinks.astro";
+
+interface Props {
+  accent?: boolean;
+}
+
+const { accent = false } = Astro.props;
+const lightLogo = accent ? "/logo/logo-light-accent.svg" : "/logo/logo-light.svg";
+const darkLogo = accent ? "/logo/logo-dark-accent.svg" : "/logo/logo-dark.svg";
+---
+
+<header class="site-header">
+  <a href="/" class="cell-pad">
+    <img src={lightLogo} alt="Twig" class="logo logo-light" />
+    <img src={darkLogo} alt="Twig" class="logo logo-dark" />
+  </a>
+  <NavLinks class="cell-pad nav-list nav-desktop" />
+  <div class="cell-pad nav-mobile">
+    <button class="nav-toggle type-sm" aria-expanded="false" aria-controls="nav-popover">
+      [ MENU ]
+      <svg class="nav-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+      </svg>
+    </button>
+    <div id="nav-popover" class="nav-popover">
+      <button class="nav-close type-sm">[ CLOSE ]</button>
+      <NavLinks class="nav-popover-links" />
+    </div>
+  </div>
+</header>
+
+<script>
+  import "../scripts/mobile-nav";
+</script>

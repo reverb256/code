@@ -1,0 +1,201 @@
+---
+import Base from "../layouts/Base.astro";
+import GridOverlay from "../components/GridOverlay.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+const chapters = [
+  {
+    title: "getting started",
+    sections: ["installation", "system requirements", "quick start"],
+  },
+  {
+    title: "core concepts",
+    sections: ["agentic development", "workspaces", "posthog integration", "glossary"],
+  },
+  {
+    title: "using twig",
+    sections: ["interface overview", "opening projects", "working with the agent", "code editing", "terminal", "keyboard shortcuts", "settings"],
+  },
+  {
+    title: "posthog features",
+    sections: ["connecting posthog"],
+  },
+  {
+    title: "troubleshooting",
+    sections: ["installation issues", "connection issues"],
+  },
+  {
+    title: "advanced",
+    sections: ["model context protocol"],
+  },
+  {
+    title: "pricing",
+    sections: [],
+  },
+];
+---
+
+<Base title="Manual - Twig">
+  <GridOverlay />
+  <Header accent />
+
+  <main>
+    <section class="grid-container grid-section grid-section--spacious border-t">
+      <nav class="manual-nav cell-pad scrollbar-styled">
+        <h1 class="type-xl manual-nav-title">Manual</h1>
+        <ol class="manual-toc">
+          {chapters.map((chapter, index) => (
+            <li class="manual-toc-chapter">
+              <a href={`#chapter-${index + 1}`} class="manual-toc-link type-sm weight-medium">
+                <span class="manual-toc-number">{index + 1}.</span><span class="manual-toc-title">{chapter.title}</span>
+              </a>
+              {chapter.sections.length > 0 && (
+                <ul class="manual-toc-sections">
+                  {chapter.sections.map((section) => (
+                    <li>
+                      <a href={`#${section.toLowerCase().replace(/\s+/g, "-")}`} class="manual-toc-section-link type-xs">
+                        {section}
+                      </a>
+                    </li>
+                  ))}
+                                  </ul>
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
+
+      <div class="manual-content cell-pad">
+        <div class="manual-intro">
+          <p class="type-xl manual-intro-title"><strong>Lorem ipsum</strong> dolor sit amet consectetur. Adipiscing elit sed do eiusmod tempor.</p>
+          <div class="manual-intro-divider"></div>
+        </div>
+
+        <article id="chapter-1" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">Getting Started</h2>
+          <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+
+          <section id="installation">
+            <h3 class="type-base weight-medium manual-section-title">Installation</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+            <pre class="manual-code"><code>brew install twig</code></pre>
+          </section>
+
+          <section id="system-requirements">
+            <h3 class="type-base weight-medium manual-section-title">System Requirements</h3>
+            <p class="type-sm">Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+          </section>
+
+          <section id="quick-start">
+            <h3 class="type-base weight-medium manual-section-title">Quick Start</h3>
+            <p class="type-sm">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
+          </section>
+        </article>
+
+        <article id="chapter-2" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">Core Concepts</h2>
+
+          <section id="agentic-development">
+            <h3 class="type-base weight-medium manual-section-title">Agentic Development</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+          </section>
+
+          <section id="workspaces">
+            <h3 class="type-base weight-medium manual-section-title">Workspaces</h3>
+            <p class="type-sm">Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+          </section>
+
+          <section id="posthog-integration">
+            <h3 class="type-base weight-medium manual-section-title">PostHog Integration</h3>
+            <p class="type-sm">Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+          </section>
+
+          <section id="glossary">
+            <h3 class="type-base weight-medium manual-section-title">Glossary</h3>
+            <p class="type-sm">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
+          </section>
+        </article>
+
+        <article id="chapter-3" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">Using Twig</h2>
+
+          <section id="interface-overview">
+            <h3 class="type-base weight-medium manual-section-title">Interface Overview</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+          </section>
+
+          <section id="opening-projects">
+            <h3 class="type-base weight-medium manual-section-title">Opening Projects</h3>
+            <p class="type-sm">Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+          </section>
+
+          <section id="working-with-the-agent">
+            <h3 class="type-base weight-medium manual-section-title">Working with the Agent</h3>
+            <p class="type-sm">Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+          </section>
+
+          <section id="code-editing">
+            <h3 class="type-base weight-medium manual-section-title">Code Editing</h3>
+            <p class="type-sm">Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
+          </section>
+
+          <section id="terminal">
+            <h3 class="type-base weight-medium manual-section-title">Terminal</h3>
+            <p class="type-sm">Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia.</p>
+          </section>
+
+          <section id="keyboard-shortcuts">
+            <h3 class="type-base weight-medium manual-section-title">Keyboard Shortcuts</h3>
+            <p class="type-sm">Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit.</p>
+          </section>
+
+          <section id="settings">
+            <h3 class="type-base weight-medium manual-section-title">Settings</h3>
+            <p class="type-sm">Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium.</p>
+          </section>
+        </article>
+
+        <article id="chapter-4" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">PostHog Features</h2>
+
+          <section id="connecting-posthog">
+            <h3 class="type-base weight-medium manual-section-title">Connecting PostHog</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+          </section>
+        </article>
+
+        <article id="chapter-5" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">Troubleshooting</h2>
+
+          <section id="installation-issues">
+            <h3 class="type-base weight-medium manual-section-title">Installation Issues</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+          </section>
+
+          <section id="connection-issues">
+            <h3 class="type-base weight-medium manual-section-title">Connection Issues</h3>
+            <p class="type-sm">Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+          </section>
+        </article>
+
+        <article id="chapter-6" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title">Advanced</h2>
+
+          <section id="model-context-protocol">
+            <h3 class="type-base weight-medium manual-section-title">Model Context Protocol</h3>
+            <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+          </section>
+        </article>
+
+        <article id="chapter-7" class="manual-chapter">
+          <h2 class="type-lg weight-medium manual-chapter-title" id="pricing">Pricing</h2>
+          <p class="type-sm">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+          <p class="type-sm">Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Base>

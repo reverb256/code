@@ -1,0 +1,67 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../layouts/Base.astro";
+import GridOverlay from "../components/GridOverlay.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+const posts = (await getCollection("blog")).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+function formatDate(date: Date): string {
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const month = months[date.getMonth()];
+  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getFullYear();
+  return `[${month}.${day}.${year}]`;
+}
+---
+
+<Base title="Blog - Twig">
+  <GridOverlay />
+  <Header accent />
+
+  <main>
+    <section class="grid-container grid-section grid-section--spacious border-t">
+      <div class="blog-header cell-pad">
+        <h1 class="type-4xl">Blog<sup class="type-base blog-count">({posts.length})</sup></h1>
+        <div class="blog-preview-container">
+          {posts.map((post, index) => (
+            <div class:list={["blog-preview", { active: index === 0 }]} data-preview-index={index}>
+              {post.data.image && <img src={post.data.image} alt="" class="blog-preview-image invertible" />}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="blog-list">
+        <div class="blog-divider">
+          <span class="blog-divider-text type-xs">WHERE WE'VE BEEN | WHERE WE'RE GOING</span>
+        </div>
+        <div class="blog-list-header">
+          <span class="type-xs blog-col-date cell-pad">/ DATE</span>
+          <span class="type-xs blog-col-name cell-pad">/ NAME</span>
+        </div>
+        {posts.map((post, index) => (
+          <a href={`/blog/${post.id}`} class="blog-row" data-row-index={index}>
+            <span class="type-sm blog-col-date cell-pad">{formatDate(post.data.date)}</span>
+            <div class="blog-col-name cell-pad">
+              <div class="blog-col-name-inner">
+                <span class="type-xl weight-medium blog-title">{post.data.title}</span>
+                <p class="type-sm blog-description">{post.data.description}</p>
+              </div>
+              <span class="type-sm blog-author">{post.data.author}</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+
+  <script>
+    import "../scripts/blog-preview";
+  </script>
+</Base>

@@ -9,12 +9,14 @@
     "typecheck": "astro check && tsc --noEmit"
   },
   "dependencies": {
+    "@astrojs/mdx": "^4.3.13",
     "@tailwindcss/vite": "^4.2.0",
     "astro": "^5.7.10",
     "tailwindcss": "^4.2.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
+    "posthog-js": "^1.340.0",
     "typescript": "^5.8.3"
   }
 }

@@ -1,0 +1,31 @@
+---
+interface Props {
+  variant?: "outline" | "outline-inverted" | "solid" | "solid-accent";
+  size?: "sm" | "base";
+  href?: string;
+  type?: "button" | "submit";
+  class?: string;
+  disabled?: boolean;
+}
+
+const {
+  variant = "outline",
+  size = "sm",
+  href,
+  type = "button",
+  class: className,
+  disabled = false,
+} = Astro.props;
+
+const Tag = href ? "a" : "button";
+const sizeClass = size === "sm" ? "type-sm" : "type-base";
+---
+
+<Tag
+  href={href}
+  type={!href ? type : undefined}
+  disabled={!href ? disabled : undefined}
+  class:list={["btn", `btn--${variant}`, sizeClass, className]}
+>
+  <slot />
+</Tag>

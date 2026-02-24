@@ -1,3 +1,7 @@
 @import "tailwindcss";
 @import "./typography.css";
-@import "./layout.css";
+@import "./grid.css";
+@import "./components.css";
+@import "./pages/home.css";
+@import "./pages/blog.css";
+@import "./pages/manual.css";

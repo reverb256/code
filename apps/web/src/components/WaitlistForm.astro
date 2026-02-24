@@ -1,0 +1,75 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+
+const steps = [
+  { id: "email", label: "EMAIL", placeholder: "you@example.com", type: "email" as const },
+  { id: "team-size", label: "TEAM SIZE", placeholder: "e.g. 5", type: "number" as const },
+  { id: "posthog-user", label: "POSTHOG USER", type: "toggle" as const },
+  { id: "ai-budget", label: "AI BUDGET PER DEV (USD)", placeholder: "e.g. 500", type: "number" as const },
+];
+---
+
+<div class:list={["waitlist-form", className]} data-step="0">
+  <div class="waitlist-success">
+    <p class="type-base">You're on the list.</p>
+    <p class="type-sm">Signed up as <span class="waitlist-success-email"></span></p>
+  </div>
+
+  <div class="waitlist-progress">
+    <div class="waitlist-progress-bar"></div>
+  </div>
+
+  <div class="waitlist-header">
+    <span class="waitlist-label type-sm"></span>
+    <span class="waitlist-step type-sm"></span>
+  </div>
+
+  <form class="waitlist-fields">
+    {steps.map((step, i) => (
+      <div class="waitlist-field" data-field-index={i} data-field-id={step.id}>
+        {step.type === "toggle" ? (
+          <div class="waitlist-toggle">
+            <span class="waitlist-toggle-label type-base">Are you currently using PostHog?</span>
+            <div class="waitlist-toggle-buttons">
+              <button type="button" class="waitlist-toggle-btn type-base" data-value="true">YES</button>
+              <button type="button" class="waitlist-toggle-btn type-base" data-value="false">NO</button>
+            </div>
+            <input type="hidden" name={step.id} />
+          </div>
+        ) : (
+          <input
+            type={step.type}
+            name={step.id}
+            placeholder={"placeholder" in step ? step.placeholder : ""}
+            class="waitlist-input type-base"
+            required
+            min={step.type === "number" ? "0" : undefined}
+          />
+        )}
+      </div>
+    ))}
+  </form>
+
+  <p class="waitlist-hint type-sm">Press Enter to continue</p>
+
+  <button type="button" class="waitlist-btn waitlist-btn-submit type-sm">
+    JOIN THE WAITLIST
+  </button>
+
+  <div class="waitlist-nav">
+    <button type="button" class="waitlist-btn waitlist-btn-prev type-sm" disabled>
+      &lt; PREVIOUS
+    </button>
+    <button type="button" class="waitlist-btn waitlist-btn-next type-sm">
+      NEXT &gt;
+    </button>
+  </div>
+</div>
+
+<script>
+  import "../scripts/waitlist-form";
+</script>
