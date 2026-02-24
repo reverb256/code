@@ -799,8 +799,10 @@ export class SessionService {
     const msg = acpMsg.message;
 
     if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
+      // acpMsg.ts is local time (set in-process) — matches Date.now() used in sendLocalPrompt
       sessionStoreSetters.updateSession(taskRunId, {
         isPromptPending: true,
+        promptStartedAt: acpMsg.ts,
       });
     }
 
@@ -813,6 +815,7 @@ export class SessionService {
     ) {
       sessionStoreSetters.updateSession(taskRunId, {
         isPromptPending: false,
+        promptStartedAt: null,
       });
 
       const stopReason = (msg.result as { stopReason?: string }).stopReason;
@@ -1042,6 +1045,7 @@ export class SessionService {
   ): Promise<{ stopReason: string }> {
     sessionStoreSetters.updateSession(session.taskRunId, {
       isPromptPending: true,
+      promptStartedAt: Date.now(),
     });
 
     try {
@@ -1052,6 +1056,7 @@ export class SessionService {
       // Clear pending state on success
       sessionStoreSetters.updateSession(session.taskRunId, {
         isPromptPending: false,
+        promptStartedAt: null,
       });
       return result;
     } catch (error) {
@@ -1072,10 +1077,12 @@ export class SessionService {
             errorDetails ||
             "Session connection lost. Please retry or start a new task.",
           isPromptPending: false,
+          promptStartedAt: null,
         });
       } else {
         sessionStoreSetters.updateSession(session.taskRunId, {
           isPromptPending: false,
+          promptStartedAt: null,
         });
       }
 
@@ -1222,6 +1229,11 @@ export class SessionService {
     }
 
     const previousValue = configOptions[optionIndex].currentValue;
+
+    // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
+    if (previousValue === value) {
+      return;
+    }
 
     // Optimistic update
     const updatedOptions = configOptions.map((opt) =>
@@ -1623,6 +1635,7 @@ export class SessionService {
       startedAt: Date.now(),
       status: "connecting",
       isPromptPending: false,
+      promptStartedAt: null,
       pendingPermissions: new Map(),
       messageQueue: [],
     };
