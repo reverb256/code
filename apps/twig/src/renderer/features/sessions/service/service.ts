@@ -223,7 +223,7 @@ export class SessionService {
           session.status = "error";
           session.errorMessage = workspaceResult.missingPath
             ? `Working directory no longer exists: ${workspaceResult.missingPath}`
-            : "The working directory for this task no longer exists. Please start a new task.";
+            : "The working directory for this task no longer exists. Please start a new session.";
           sessionStoreSetters.setSession(session);
           return;
         }
@@ -292,7 +292,7 @@ export class SessionService {
     taskId: string,
     taskRunId: string,
     taskTitle: string,
-    logUrl: string,
+    logUrl: string | undefined,
     repoPath: string,
     auth: AuthCredentials,
     prefetchedLogs?: {
@@ -314,7 +314,9 @@ export class SessionService {
 
     const session = this.createBaseSession(taskRunId, taskId, taskTitle);
     session.events = events;
-    session.logUrl = logUrl;
+    if (logUrl) {
+      session.logUrl = logUrl;
+    }
     if (persistedConfigOptions) {
       session.configOptions = persistedConfigOptions;
     }
@@ -325,7 +327,6 @@ export class SessionService {
 
     sessionStoreSetters.setSession(session);
     this.subscribeToChannel(taskRunId);
-    sessionStoreSetters.updateSession(taskRunId, { status: "connected" });
 
     try {
       const persistedMode = getConfigOptionByCategory(
@@ -345,7 +346,7 @@ export class SessionService {
               status: "error",
               errorMessage: workspaceResult.missingPath
                 ? `Working directory no longer exists: ${workspaceResult.missingPath}`
-                : "The working directory for this task no longer exists. Please start a new task.",
+                : "The working directory for this task no longer exists. Please start a new session.",
             });
           }
         })
@@ -414,33 +415,24 @@ export class SessionService {
           );
         }
       } else {
-        log.warn("Reconnect returned null, falling back to new session", {
+        log.warn("Reconnect returned null", { taskId, taskRunId });
+        this.setErrorSession(
           taskId,
           taskRunId,
-        });
-        await this.recreateOrError(
-          taskRunId,
-          taskId,
           taskTitle,
-          repoPath,
-          auth,
-          "Failed to start a new session. Please try again.",
+          "Session could not be resumed. Please retry or start a new session.",
         );
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      log.warn("Reconnect failed, falling back to new session", {
+      log.warn("Reconnect failed", { taskId, error: errorMessage });
+      this.setErrorSession(
         taskId,
-        error: errorMessage,
-      });
-      await this.recreateOrError(
         taskRunId,
-        taskId,
         taskTitle,
-        repoPath,
-        auth,
-        errorMessage || "Failed to reconnect. Please try again.",
+        errorMessage ||
+          "Failed to reconnect. Please retry or start a new session.",
       );
     }
   }
@@ -461,28 +453,6 @@ export class SessionService {
     removePersistedConfigOptions(taskRunId);
   }
 
-  private async recreateOrError(
-    taskRunId: string,
-    taskId: string,
-    taskTitle: string,
-    repoPath: string,
-    auth: AuthCredentials,
-    fallbackMessage: string,
-  ): Promise<void> {
-    try {
-      await this.recreateSession(taskRunId, taskId, taskTitle, repoPath, auth);
-    } catch (recreateError) {
-      log.error("Failed to recreate session", {
-        taskId,
-        error:
-          recreateError instanceof Error
-            ? recreateError.message
-            : String(recreateError),
-      });
-      this.setErrorSession(taskId, taskRunId, taskTitle, fallbackMessage);
-    }
-  }
-
   private setErrorSession(
     taskId: string,
     taskRunId: string,
@@ -490,22 +460,22 @@ export class SessionService {
     errorMessage: string,
     errorTitle?: string,
   ): void {
+    // Preserve events and logUrl from the existing session so the
+    // retry / reset flows can re-hydrate without a fresh log fetch.
+    // Note: the error overlay is opaque, so these events aren't visible
+    // to the user — they're carried forward for the next reconnect attempt.
+    const existing = sessionStoreSetters.getSessionByTaskId(taskId);
     const session = this.createBaseSession(taskRunId, taskId, taskTitle);
     session.status = "error";
     session.errorTitle = errorTitle;
     session.errorMessage = errorMessage;
+    if (existing?.events?.length) {
+      session.events = existing.events;
+    }
+    if (existing?.logUrl) {
+      session.logUrl = existing.logUrl;
+    }
     sessionStoreSetters.setSession(session);
-  }
-
-  private async recreateSession(
-    oldTaskRunId: string,
-    taskId: string,
-    taskTitle: string,
-    repoPath: string,
-    auth: AuthCredentials,
-  ): Promise<void> {
-    await this.teardownSession(oldTaskRunId);
-    await this.createNewLocalSession(taskId, taskTitle, repoPath, auth);
   }
 
   private async createNewLocalSession(
@@ -941,7 +911,7 @@ export class SessionService {
       if (session.status === "error") {
         throw new Error(
           session.errorMessage ||
-            "Session is in error state. Please retry or start a new task.",
+            "Session is in error state. Please retry or start a new session.",
         );
       }
       if (session.status === "connecting") {
@@ -1075,7 +1045,7 @@ export class SessionService {
           status: "error",
           errorMessage:
             errorDetails ||
-            "Session connection lost. Please retry or start a new task.",
+            "Session connection lost. Please retry or start a new session.",
           isPromptPending: false,
           promptStartedAt: null,
         });
@@ -1372,14 +1342,76 @@ export class SessionService {
   }
 
   /**
-   * Clear session error and allow retry.
-   * Tears down the old session; events are re-fetched from logs during reconnect.
+   * Retry connecting to the existing session (resume attempt using
+   * the sessionId from logs). Does NOT tear down — avoids the connect
+   * effect loop.
    */
-  async clearSessionError(taskId: string): Promise<void> {
+  async clearSessionError(taskId: string, repoPath: string): Promise<void> {
+    await this.reconnectInPlace(taskId, repoPath);
+  }
+
+  /**
+   * Start a fresh session for a task, abandoning the old conversation.
+   * Clears the backend sessionId so the next reconnect creates a new
+   * session instead of attempting to resume the stale one.
+   */
+  async resetSession(taskId: string, repoPath: string): Promise<void> {
+    await this.reconnectInPlace(taskId, repoPath, null);
+  }
+
+  /**
+   * Cancel the current backend agent and reconnect under the same taskRunId.
+   * Does NOT remove the session from the store (avoids connect effect loop).
+   * Overwrites the store session in place via reconnectToLocalSession.
+   *
+   * @param overrideSessionId - Controls which sessionId is used for reconnect:
+   *   - `undefined` (default): use the sessionId from logs (resume attempt)
+   *   - `null`: strip the sessionId so the backend creates a fresh session
+   *   - `string`: use that specific sessionId
+   */
+  private async reconnectInPlace(
+    taskId: string,
+    repoPath: string,
+    overrideSessionId?: string | null,
+  ): Promise<void> {
     const session = sessionStoreSetters.getSessionByTaskId(taskId);
-    if (session) {
-      await this.teardownSession(session.taskRunId);
+    if (!session) return;
+
+    const { taskRunId, taskTitle, logUrl } = session;
+
+    // Cancel lingering backend agent (ignore errors — it may not exist
+    // after a failed reconnect)
+    try {
+      await trpcVanilla.agent.cancel.mutate({ sessionId: taskRunId });
+    } catch {
+      // expected when backend has no session
     }
+    this.unsubscribeFromChannel(taskRunId);
+
+    const auth = this.getAuthCredentials();
+    if (!auth) {
+      throw new Error("Unable to reach server. Please check your connection.");
+    }
+
+    const prefetchedLogs = logUrl
+      ? await this.fetchSessionLogs(logUrl, taskRunId)
+      : { rawEntries: [] as StoredLogEntry[], adapter: undefined };
+
+    // Determine sessionId: undefined = use from logs, null = strip (fresh), string = use as-is
+    const sessionId =
+      overrideSessionId === null
+        ? undefined
+        : (overrideSessionId ?? prefetchedLogs.sessionId);
+
+    await this.reconnectToLocalSession(
+      taskId,
+      taskRunId,
+      taskTitle,
+      logUrl,
+      repoPath,
+      auth,
+      { ...prefetchedLogs, sessionId },
+    );
   }
 
   /**
@@ -1575,7 +1607,7 @@ export class SessionService {
   }
 
   private async fetchSessionLogs(
-    logUrl: string,
+    logUrl: string | undefined,
     taskRunId?: string,
   ): Promise<{
     rawEntries: StoredLogEntry[];

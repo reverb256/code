@@ -44,11 +44,32 @@ export type { InterruptReason };
 
 const log = logger.scope("agent-service");
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return "";
+}
+
 function isAuthError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.startsWith("Authentication required")
-  );
+  return getErrorMessage(error).startsWith("Authentication required");
+}
+
+/** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry. */
+function hidePromptBlocks(prompt: ContentBlock[]): ContentBlock[] {
+  return prompt.map((block) => {
+    const existing = (
+      block as ContentBlock & { _meta?: { ui?: Record<string, unknown> } }
+    )._meta;
+    return {
+      ...block,
+      _meta: {
+        ...existing,
+        ui: { ...existing?.ui, hidden: true },
+      },
+    };
+  });
 }
 
 type MessageCallback = (message: unknown) => void;
@@ -529,10 +550,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         });
         configOptions = loadResponse.configOptions ?? undefined;
         agentSessionId = config.sessionId;
-      } else if (isReconnect && adapter !== "codex") {
-        if (!config.sessionId) {
-          throw new Error("Cannot resume session without sessionId");
-        }
+      } else if (isReconnect && adapter !== "codex" && config.sessionId) {
         const systemPrompt = this.buildSystemPrompt(
           credentials,
           customInstructions,
@@ -567,6 +585,12 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         configOptions = resumeMeta?.configOptions;
         agentSessionId = config.sessionId;
       } else {
+        if (isReconnect) {
+          log.info("No sessionId for reconnect, creating new session", {
+            taskId,
+            taskRunId,
+          });
+        }
         const systemPrompt = this.buildSystemPrompt(
           credentials,
           customInstructions,
@@ -723,7 +747,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         session = await this.recreateSession(sessionId);
         const result = await session.clientSideConnection.prompt({
           sessionId: session.config.sessionId!,
-          prompt: finalPrompt,
+          prompt: hidePromptBlocks(finalPrompt),
         });
         return {
           stopReason: result.stopReason,

@@ -10,7 +10,6 @@ import {
 import { useCwd } from "@features/sidebar/hooks/useCwd";
 import { useTaskViewedStore } from "@features/sidebar/stores/taskViewedStore";
 import { WorkspaceSetupPrompt } from "@features/task-detail/components/WorkspaceSetupPrompt";
-import { useDeleteTask } from "@features/tasks/hooks/useTasks";
 import { useWorkspaceStore } from "@features/workspace/stores/workspaceStore";
 import { useConnectivity } from "@hooks/useConnectivity";
 import { Box, Button, Flex, Spinner, Text } from "@radix-ui/themes";
@@ -45,7 +44,6 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
   );
 
   const session = useSessionForTask(taskId);
-  const { deleteWithConfirm } = useDeleteTask();
   const markActivity = useTaskViewedStore((state) => state.markActivity);
   const markAsViewed = useTaskViewedStore((state) => state.markAsViewed);
   const { requestFocus, setPendingContent } = useDraftStore((s) => s.actions);
@@ -66,8 +64,7 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
   const prUrl =
     isCloud && cloudOutput?.pr_url ? (cloudOutput.pr_url as string) : null;
 
-  const isRunning =
-    session?.status === "connected" || session?.status === "connecting";
+  const isRunning = session?.status === "connected";
   const hasError = session?.status === "error";
   const errorTitle = session?.errorTitle;
   const errorMessage = session?.errorMessage;
@@ -237,17 +234,23 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
 
   const handleRetry = useCallback(async () => {
     if (!repoPath) return;
-    await getSessionService().clearSessionError(taskId);
+    try {
+      await getSessionService().clearSessionError(taskId, repoPath);
+    } catch (error) {
+      log.error("Failed to clear session error", error);
+      toast.error("Failed to retry. Please try again.");
+    }
   }, [taskId, repoPath]);
 
-  const handleDelete = useCallback(() => {
-    const hasWorktree = workspace?.mode === "worktree";
-    deleteWithConfirm({
-      taskId,
-      taskTitle: task.title ?? task.description ?? "Untitled",
-      hasWorktree,
-    });
-  }, [taskId, task, workspace, deleteWithConfirm]);
+  const handleNewSession = useCallback(async () => {
+    if (!repoPath) return;
+    try {
+      await getSessionService().resetSession(taskId, repoPath);
+    } catch (error) {
+      log.error("Failed to reset session", error);
+      toast.error("Failed to start new session. Please try again.");
+    }
+  }, [taskId, repoPath]);
 
   const handleBashCommand = useCallback(
     async (command: string) => {
@@ -327,7 +330,7 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
               errorTitle={isCloud ? undefined : errorTitle}
               errorMessage={isCloud ? undefined : errorMessage}
               onRetry={handleRetry}
-              onDelete={handleDelete}
+              onNewSession={handleNewSession}
               isInitializing={isInitializing}
               readOnlyMessage={isCloud ? "Cloud runs are read-only" : undefined}
             />
