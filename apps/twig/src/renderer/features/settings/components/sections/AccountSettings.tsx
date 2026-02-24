@@ -1,39 +1,23 @@
 import { useAuthStore } from "@features/auth/stores/authStore";
 import { SettingRow } from "@features/settings/components/SettingRow";
-import { useMeQuery } from "@hooks/useMeQuery";
-import { useProjectQuery } from "@hooks/useProjectQuery";
 import { SignOut } from "@phosphor-icons/react";
 import { Avatar, Badge, Button, Flex, Spinner, Text } from "@radix-ui/themes";
-import { trpcVanilla } from "@renderer/trpc";
-import type { CloudRegion } from "@shared/types/oauth";
-import { useMutation } from "@tanstack/react-query";
-
-const REGION_LABELS: Record<CloudRegion, string> = {
-  us: "US Cloud",
-  eu: "EU Cloud",
-  dev: "Development",
-};
+import { REGION_LABELS } from "@shared/constants/oauth";
+import { useQuery } from "@tanstack/react-query";
 
 export function AccountSettings() {
-  const { isAuthenticated, cloudRegion, loginWithOAuth, logout } =
+  const { client, isAuthenticated, selectedPlan, logout, cloudRegion } =
     useAuthStore();
-  const { data: currentUser } = useMeQuery();
-  const { data: project } = useProjectQuery();
 
-  const reauthMutation = useMutation({
-    mutationFn: async (region: CloudRegion) => {
-      await loginWithOAuth(region);
+  // Fetch current user from PostHog
+  const { data: user, isLoading } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: async () => {
+      if (!client) return null;
+      return await client.getCurrentUser();
     },
+    enabled: !!client && isAuthenticated,
   });
-
-  const handleReauthenticate = async () => {
-    if (reauthMutation.isPending) {
-      reauthMutation.reset();
-      await trpcVanilla.oauth.cancelFlow.mutate();
-    } else if (cloudRegion) {
-      reauthMutation.mutate(cloudRegion);
-    }
-  };
 
   const handleLogout = () => {
     logout();
@@ -50,9 +34,18 @@ export function AccountSettings() {
     );
   }
 
-  const initials = currentUser?.email
-    ? currentUser.email.substring(0, 2).toUpperCase()
-    : "?";
+  if (isLoading || !user) {
+    return (
+      <Flex direction="column" gap="3" py="4">
+        <Spinner size="3" />
+      </Flex>
+    );
+  }
+
+  const initials =
+    user.first_name && user.last_name
+      ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+      : (user.email?.substring(0, 2).toUpperCase() ?? "U");
 
   return (
     <Flex direction="column">
@@ -65,18 +58,27 @@ export function AccountSettings() {
         <Avatar size="4" fallback={initials} radius="full" color="amber" />
         <Flex direction="column" gap="1" style={{ flex: 1 }}>
           <Text size="3" weight="medium">
-            {currentUser?.email || "Unknown user"}
+            {user.first_name && user.last_name
+              ? `${user.first_name} ${user.last_name}`
+              : user.email}
           </Text>
           <Flex align="center" gap="2">
+            <Text size="2" color="gray">
+              {user.email}
+            </Text>
             {cloudRegion && (
-              <Badge size="1" variant="soft" color="gray">
-                {REGION_LABELS[cloudRegion as CloudRegion]}
+              <Badge size="1" variant="soft">
+                {REGION_LABELS[cloudRegion]}
               </Badge>
             )}
-            {project?.name && (
-              <Text size="1" color="gray">
-                {project.name}
-              </Text>
+            {selectedPlan && (
+              <Badge
+                size="1"
+                variant="soft"
+                color={selectedPlan === "pro" ? "orange" : "gray"}
+              >
+                {selectedPlan === "pro" ? "Pro" : "Free"}
+              </Badge>
             )}
           </Flex>
         </Flex>
@@ -93,28 +95,18 @@ export function AccountSettings() {
       </Flex>
 
       <SettingRow
-        label="Re-authenticate"
-        description="Refresh your authentication token if you're experiencing issues"
+        label="Plan"
+        description="Your current subscription plan"
         noBorder
       >
-        <Button
-          variant="outline"
-          size="1"
-          onClick={handleReauthenticate}
-          disabled={reauthMutation.isPending}
+        <Badge
+          size="2"
+          variant="soft"
+          color={selectedPlan === "pro" ? "orange" : "gray"}
         >
-          {reauthMutation.isPending && <Spinner />}
-          {reauthMutation.isPending ? "Authenticating..." : "Re-authenticate"}
-        </Button>
+          {selectedPlan === "pro" ? "Pro — $200/mo" : "Free"}
+        </Badge>
       </SettingRow>
-
-      {reauthMutation.isError && (
-        <Text size="1" color="red" mt="2">
-          {reauthMutation.error instanceof Error
-            ? reauthMutation.error.message
-            : "Failed to re-authenticate"}
-        </Text>
-      )}
     </Flex>
   );
 }

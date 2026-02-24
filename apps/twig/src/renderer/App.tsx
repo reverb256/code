@@ -3,6 +3,7 @@ import { LoginTransition } from "@components/LoginTransition";
 import { MainLayout } from "@components/MainLayout";
 import { AuthScreen } from "@features/auth/components/AuthScreen";
 import { useAuthStore } from "@features/auth/stores/authStore";
+import { OnboardingFlow } from "@features/onboarding/components/OnboardingFlow";
 import { useWorkspaceStore } from "@features/workspace/stores/workspaceStore";
 import { Flex, Spinner, Text } from "@radix-ui/themes";
 import { initializePostHog } from "@renderer/lib/analytics";
@@ -18,11 +19,11 @@ import { useEffect, useRef, useState } from "react";
 const log = logger.scope("app");
 
 function App() {
-  const { isAuthenticated, initializeOAuth } = useAuthStore();
+  const { isAuthenticated, hasCompletedOnboarding } = useAuthStore();
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const [isLoading, setIsLoading] = useState(true);
   const [showTransition, setShowTransition] = useState(false);
-  const wasAuthenticated = useRef(isAuthenticated);
+  const wasInMainApp = useRef(isAuthenticated && hasCompletedOnboarding);
 
   // Initialize PostHog analytics
   useEffect(() => {
@@ -125,18 +126,28 @@ function App() {
     },
   });
 
+  // Wait for authStore to hydrate, then restore session from stored tokens
   useEffect(() => {
-    initializeOAuth().finally(() => setIsLoading(false));
-  }, [initializeOAuth]);
+    const initialize = async () => {
+      if (!useAuthStore.persist.hasHydrated()) {
+        await new Promise<void>((resolve) => {
+          useAuthStore.persist.onFinishHydration(() => resolve());
+        });
+      }
+      await useAuthStore.getState().initializeOAuth();
+      setIsLoading(false);
+    };
+    initialize();
+  }, []);
 
-  // Handle auth state change for transition
+  // Handle transition into main app (from onboarding completion)
   useEffect(() => {
-    if (!wasAuthenticated.current && isAuthenticated) {
-      // User just logged in - trigger transition
+    const isInMainApp = isAuthenticated && hasCompletedOnboarding;
+    if (!wasInMainApp.current && isInMainApp) {
       setShowTransition(true);
     }
-    wasAuthenticated.current = isAuthenticated;
-  }, [isAuthenticated]);
+    wasInMainApp.current = isInMainApp;
+  }, [isAuthenticated, hasCompletedOnboarding]);
 
   const handleTransitionComplete = () => {
     setShowTransition(false);
@@ -153,7 +164,7 @@ function App() {
     );
   }
 
-  // Determine which screen to show
+  // Three-phase rendering: auth → onboarding → main app
   const renderContent = () => {
     if (!isAuthenticated) {
       return (
@@ -164,6 +175,20 @@ function App() {
           transition={{ duration: 0.5 }}
         >
           <AuthScreen />
+        </motion.div>
+      );
+    }
+
+    if (!hasCompletedOnboarding) {
+      return (
+        <motion.div
+          key="onboarding"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <OnboardingFlow />
         </motion.div>
       );
     }

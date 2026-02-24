@@ -455,13 +455,17 @@ export class PostHogAPIClient {
 
   async getIntegrations() {
     const teamId = await this.getTeamId();
+    return this.getIntegrationsForProject(teamId);
+  }
+
+  async getIntegrationsForProject(projectId: number) {
     const url = new URL(
-      `${this.api.baseUrl}/api/environments/${teamId}/integrations/`,
+      `${this.api.baseUrl}/api/environments/${projectId}/integrations/`,
     );
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
-      path: `/api/environments/${teamId}/integrations/`,
+      path: `/api/environments/${projectId}/integrations/`,
     });
 
     if (!response.ok) {
@@ -584,29 +588,36 @@ export class PostHogAPIClient {
   }
 
   /**
-   * Get all organizations the user belongs to.
+   * Get billing information for a specific organization.
    */
-  async getOrganizations(): Promise<
-    Array<{ id: string; name: string; slug: string }>
-  > {
-    const url = new URL(`${this.api.baseUrl}/api/organizations/`);
+  async getOrgBilling(orgId: string): Promise<{
+    has_active_subscription: boolean;
+    customer_id: string | null;
+  }> {
+    const url = new URL(
+      `${this.api.baseUrl}/api/organizations/${orgId}/billing/`,
+    );
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
-      path: "/api/organizations/",
+      path: `/api/organizations/${orgId}/billing/`,
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch organizations: ${response.statusText}`);
+      throw new Error(
+        `Failed to fetch organization billing: ${response.statusText}`,
+      );
     }
 
     const data = await response.json();
-    const orgs = data.results ?? data ?? [];
-    return orgs.map((org: { id: string; name: string; slug?: string }) => ({
-      id: org.id,
-      name: org.name,
-      slug: org.slug ?? org.id,
-    }));
+    return {
+      has_active_subscription:
+        typeof data.has_active_subscription === "boolean"
+          ? data.has_active_subscription
+          : false,
+      customer_id:
+        typeof data.customer_id === "string" ? data.customer_id : null,
+    };
   }
 
   async getSignalReports(
