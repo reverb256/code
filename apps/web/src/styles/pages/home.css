@@ -48,6 +48,10 @@
   grid-template-columns: 1fr 1fr 1fr;
 }
 
+.fig-body--six-col {
+  grid-template-columns: repeat(6, 1fr);
+}
+
 .fig-cell {
   padding: var(--space-lg) var(--grid-cell-padding);
   border-right: 1px solid var(--color-text);
@@ -159,7 +163,8 @@
   .fig-body--two-col,
   .fig-body--two-col-image-small,
   .fig-body--two-col-image-small-right,
-  .fig-body--three-col {
+  .fig-body--three-col,
+  .fig-body--six-col {
     grid-template-columns: 1fr;
   }
 
@@ -332,6 +337,15 @@
   white-space: nowrap;
   opacity: 0.65;
   flex-shrink: 0;
+}
+
+.connect-strip .connect-badge {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.connect-strip .connect-badge:hover {
+  opacity: 1;
 }
 
 /* ══════════════════════════════════
@@ -589,16 +603,19 @@
   font-weight: 700;
   white-space: nowrap;
   letter-spacing: 0.04em;
+  min-width: 5.5rem;
+  text-align: center;
+  display: inline-block;
 }
 
 .branch-badge--merged {
-  background-color: #4d642c;
-  color: var(--color-parchment);
+  background-color: var(--color-text);
+  color: var(--color-bg);
 }
 
 .branch-badge--review {
-  background-color: #ffaa55;
-  color: var(--color-text);
+  background-color: var(--color-accent);
+  color: var(--color-bg);
 }
 
 .branch-badge--running {
@@ -697,14 +714,14 @@
 .stat-col::before {
   content: "";
   position: absolute;
-  inset: -5%;
+  inset: 0;
   background-color: color-mix(in oklab, var(--color-text) 20%, transparent);
-  mask-size: 65%;
+  mask-size: cover;
   mask-repeat: no-repeat;
-  mask-position: center bottom;
-  -webkit-mask-size: 65%;
+  mask-position: center;
+  -webkit-mask-size: cover;
   -webkit-mask-repeat: no-repeat;
-  -webkit-mask-position: center bottom;
+  -webkit-mask-position: center;
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
@@ -846,6 +863,283 @@
 }
 
 /* ══════════════════════════════════
+   PARALLEL AGENT ORCHESTRATION — game board
+══════════════════════════════════ */
+
+/* Full-width dark cell: branch-pattern chess texture */
+.agent-board-cell {
+  background-color: var(--color-text);
+  color: var(--color-bg);
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-lg) var(--grid-cell-padding);
+}
+
+.agent-board-cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/branch.svg");
+  background-size: 280px;
+  background-repeat: repeat;
+  opacity: 0.035;
+  pointer-events: none;
+}
+
+.agent-board-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-bg) 10%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.agent-board-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  animation: data-wizard-pulse 1.8s ease-in-out infinite;
+}
+
+.agent-board-count {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+}
+
+/* 4-tile grid */
+.agent-board-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.agent-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md) var(--space-md) 0;
+  border-right: 1px solid color-mix(in oklab, var(--color-bg) 10%, transparent);
+  padding-right: var(--space-md);
+  position: relative;
+  min-height: 180px;
+}
+
+.agent-tile:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+/* Giant faint number — the chess square label */
+.agent-tile-num {
+  position: absolute;
+  bottom: var(--space-sm);
+  right: var(--space-sm);
+  font-size: clamp(3.5rem, 7vw, 6rem);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  line-height: 1;
+  color: var(--color-bg);
+  opacity: 0.05;
+  pointer-events: none;
+  user-select: none;
+}
+
+.agent-tile-name {
+  font-size: var(--type-xs);
+  font-family: var(--font-mono);
+  opacity: 0.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Activity waveform — abstract / organic */
+.agent-wave {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  flex: 1;
+}
+
+.agent-wave span {
+  flex: 1;
+  min-height: 3px;
+  background: currentColor;
+  opacity: 0.55;
+  transform-origin: bottom;
+  transform: scaleY(0.06);
+  animation: wave-bounce var(--wave-speed, 1.4s) ease-in-out infinite;
+}
+
+/* Stagger bar animation delays for organic feel */
+.agent-wave span:nth-child(1) {
+  animation-delay: 0s;
+}
+.agent-wave span:nth-child(2) {
+  animation-delay: 0.11s;
+}
+.agent-wave span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+.agent-wave span:nth-child(4) {
+  animation-delay: 0.07s;
+}
+.agent-wave span:nth-child(5) {
+  animation-delay: 0.36s;
+}
+.agent-wave span:nth-child(6) {
+  animation-delay: 0.19s;
+}
+.agent-wave span:nth-child(7) {
+  animation-delay: 0.44s;
+}
+.agent-wave span:nth-child(8) {
+  animation-delay: 0.29s;
+}
+.agent-wave span:nth-child(9) {
+  animation-delay: 0.54s;
+}
+.agent-wave span:nth-child(10) {
+  animation-delay: 0.14s;
+}
+.agent-wave span:nth-child(11) {
+  animation-delay: 0.41s;
+}
+.agent-wave span:nth-child(12) {
+  animation-delay: 0.63s;
+}
+
+@keyframes wave-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.06);
+  }
+  50% {
+    transform: scaleY(var(--wave-peak, 0.85));
+  }
+}
+
+/* Tile modifiers */
+
+/* Done: static frozen waveform, green */
+.agent-tile--done .agent-wave span {
+  animation: none;
+  opacity: 0.6;
+  background-color: #4d642c;
+}
+
+.agent-tile--done .agent-wave span:nth-child(odd) {
+  transform: scaleY(0.35);
+}
+
+.agent-tile--done .agent-wave span:nth-child(even) {
+  transform: scaleY(0.7);
+}
+
+.agent-tile--done .agent-wave span:nth-child(3n) {
+  transform: scaleY(0.9);
+}
+
+.agent-tile--done .agent-wave span:nth-child(4n) {
+  transform: scaleY(0.22);
+}
+
+/* Review: slow, shallow */
+.agent-tile--review {
+  --wave-peak: 0.45;
+  --wave-speed: 2.4s;
+}
+
+.agent-tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.agent-tile-elapsed {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  opacity: 0.3;
+  letter-spacing: 0.06em;
+}
+
+/* ──── Worktree annotation cell ──── */
+
+.worktree-note-cell {
+  font-family: var(--font-mono);
+}
+
+.worktree-note-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: var(--type-xs);
+  opacity: 0.65;
+}
+
+.worktree-note-path {
+  color: var(--color-accent);
+  margin-right: 0.5rem;
+}
+
+/* Responsive */
+@media (max-width: 1023px) {
+  .agent-board-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  .agent-tile:nth-child(2) {
+    border-right: none;
+    padding-right: 0;
+  }
+
+  .agent-tile:nth-child(3),
+  .agent-tile:nth-child(4) {
+    border-top: 1px solid color-mix(in oklab, var(--color-bg) 10%, transparent);
+    padding-top: var(--space-md);
+  }
+
+  .agent-tile:nth-child(4) {
+    border-right: none;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .agent-board-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-tile {
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid
+      color-mix(in oklab, var(--color-bg) 10%, transparent);
+  }
+
+  .agent-tile:last-child {
+    border-bottom: none;
+  }
+
+  .agent-tile:nth-child(3),
+  .agent-tile:nth-child(4) {
+    border-top: none;
+  }
+}
+
+/* ══════════════════════════════════
    SCHEDULE
 ══════════════════════════════════ */
 
@@ -945,8 +1239,12 @@
 }
 
 .specimen-cell-image--clouds::before {
-  mask-image: url("/clouds.svg");
-  -webkit-mask-image: url("/clouds.svg");
+  mask-image: url("/clouds-2.svg");
+  -webkit-mask-image: url("/clouds-2.svg");
+}
+.specimen-cell-image--bugs-grid::before {
+  mask-image: url("/bugs-grid-1.svg");
+  -webkit-mask-image: url("/bugs-grid-1.svg");
 }
 .specimen-cell-image--fern::before {
   mask-image: url("/fern.svg");
@@ -959,6 +1257,10 @@
 .specimen-cell-image--tree::before {
   mask-image: url("/tree.svg");
   -webkit-mask-image: url("/tree.svg");
+}
+.specimen-cell-image--cropped-palm::before {
+  mask-image: url("/cropped-palm.svg");
+  -webkit-mask-image: url("/cropped-palm.svg");
 }
 
 .specimen-cell-image .specimen-img {
@@ -1065,14 +1367,10 @@
   color: var(--color-bg);
 }
 
-/* Inbox when placed inline below copy (same dark context) */
+/* Inbox when placed inline below copy (same spacing as pr-card-cycler) */
 .inbox-dark-wrap {
-  background-color: var(--color-text);
-  color: var(--color-bg);
   margin-top: var(--space-md);
-  margin-bottom: 0;
-  margin-inline: calc(-1 * var(--grid-cell-padding));
-  padding: var(--space-md) var(--grid-cell-padding);
+  padding: 0;
 }
 
 /* Open source cell uses plain element selectors — no BEM needed */
