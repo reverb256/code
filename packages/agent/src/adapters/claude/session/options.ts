@@ -209,6 +209,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     stderr: (err) => params.logger.error(err),
     cwd: params.cwd,
     includePartialMessages: true,
+    persistSession: true,
     allowDangerouslySkipPermissions: !IS_ROOT,
     permissionMode: params.permissionMode,
     canUseTool: params.canUseTool,
