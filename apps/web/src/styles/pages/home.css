@@ -53,6 +53,11 @@
   border-right: 1px solid var(--color-text);
 }
 
+/* Single-column fig-body: separate rows with bottom border */
+.fig-body:not(.fig-body--two-col):not(.fig-body--three-col) .fig-cell:not(:last-child) {
+  border-bottom: 1px solid var(--color-text);
+}
+
 .fig-cell:last-child {
   border-right: none;
 }
@@ -87,6 +92,32 @@
 .fig-cell--span-2 {
   grid-column: span 2;
   border-right: none;
+}
+
+/* Two-column split inside a fig-cell (headline + wizard | signal cards) */
+.fig-cell--split {
+  display: block;
+}
+
+.fig-cell-split-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+.fig-cell-split-left .data-wizard {
+  margin-top: var(--space-md);
+}
+
+.fig-cell-split-right .signal-group {
+  margin-top: var(--space-xs);
+}
+
+@media (max-width: 767px) {
+  .fig-cell-split-inner {
+    grid-template-columns: 1fr;
+  }
 }
 
 .waitlist-form-cell {
@@ -261,6 +292,11 @@
   padding-inline: calc(var(--_grid-center-offset, 0px) + var(--grid-margin));
 }
 
+/* Less vertical space — add to any section or block (e.g. integration strip, callout) */
+.compact-spacing {
+  padding-block: var(--space-sm);
+}
+
 @media (min-width: 2560px) {
   .integration-strip {
     --_grid-center-offset: calc((100vw - var(--grid-max-width)) / 2);
@@ -347,6 +383,95 @@
   border: 1px solid var(--color-text);
   margin-top: var(--space-md);
   background-color: var(--color-bg);
+}
+
+/* PR card cycler: slide through 3 variants, 8s each */
+.pr-card-cycler {
+  position: relative;
+  margin-top: var(--space-md);
+  overflow: hidden;
+  --pr-slide: 0;
+}
+
+.pr-card-track {
+  display: flex;
+  width: 300%;
+  animation: pr-card-slide 24s ease-in-out infinite;
+  transition: transform 0.3s ease;
+}
+
+.pr-card-cycler.pr-cycler-paused .pr-card-track {
+  animation: none;
+  transform: translateX(calc(var(--pr-slide) * -33.333%));
+}
+
+.pr-card-cycler:hover .pr-card-track,
+.pr-card-cycler:hover .pr-card-dot {
+  animation-play-state: paused;
+}
+
+.pr-card-cycler .pr-card-variant {
+  flex: 0 0 33.333%;
+  width: 33.333%;
+  margin-top: 0;
+  margin-right: 0;
+}
+
+@keyframes pr-card-slide {
+  0%, 32.99% { transform: translateX(0); }
+  33%, 65.99% { transform: translateX(-33.333%); }
+  66%, 99.99% { transform: translateX(-66.666%); }
+  100% { transform: translateX(0); }
+}
+
+/* Navigator: clickable buttons */
+.pr-card-nav {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: var(--space-sm);
+}
+
+.pr-card-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--color-text);
+  cursor: pointer;
+  opacity: 0.25;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  animation: pr-dot-active 24s ease-in-out infinite;
+}
+
+.pr-card-dot:hover {
+  opacity: 0.5;
+}
+
+.pr-card-dot.active {
+  opacity: 0.85;
+}
+
+.pr-card-cycler.pr-cycler-paused .pr-card-dot {
+  animation: none;
+}
+
+.pr-card-cycler.pr-cycler-paused .pr-card-dot.active {
+  opacity: 0.85;
+}
+
+.pr-card-cycler.pr-cycler-paused .pr-card-dot:not(.active) {
+  opacity: 0.25;
+}
+
+.pr-card-dot:nth-child(1) { animation-delay: 0s; }
+.pr-card-dot:nth-child(2) { animation-delay: -8s; }
+.pr-card-dot:nth-child(3) { animation-delay: -16s; }
+
+@keyframes pr-dot-active {
+  0%, 32% { opacity: 0.85; }
+  33%, 100% { opacity: 0.25; }
 }
 
 .pr-card-header {
@@ -620,12 +745,10 @@
 
 .how-step {
   padding: 0 var(--space-md) var(--space-sm) 0;
-  border-right: 1px solid color-mix(in oklab, var(--color-bg) 10%, transparent);
   padding-right: var(--space-md);
 }
 
 .how-step:last-child {
-  border-right: none;
   padding-right: 0;
 }
 
@@ -658,7 +781,6 @@
   }
 
   .how-step {
-    border-right: none;
     padding-right: 0;
   }
 
@@ -852,9 +974,14 @@
 ══════════════════════════════════ */
 
 .mcp-block {
-  padding: var(--space-sm);
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
   border: 1px solid color-mix(in oklab, var(--color-text) 20%, transparent);
   background-color: color-mix(in oklab, var(--color-text) 4%, var(--color-bg));
+  margin-top: var(--space-md);
 }
 
 .mcp-code {
@@ -869,6 +996,16 @@
 .fig-cell--inbox-dark {
   background-color: var(--color-text);
   color: var(--color-bg);
+}
+
+/* Inbox when placed inline below copy (same dark context) */
+.inbox-dark-wrap {
+  background-color: var(--color-text);
+  color: var(--color-bg);
+  margin-top: var(--space-md);
+  margin-bottom: 0;
+  margin-inline: calc(-1 * var(--grid-cell-padding));
+  padding: var(--space-md) var(--grid-cell-padding);
 }
 
 /* Open source cell uses plain element selectors — no BEM needed */
