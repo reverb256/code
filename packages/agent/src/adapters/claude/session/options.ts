@@ -42,9 +42,10 @@ When working in a detached HEAD state, create a descriptive branch name based on
 `;
 
 const PR_ATTRIBUTION = `
-# PR Attribution
+# PR Attribution — OVERRIDE
 
-When creating pull requests, replace the default "Generated with Claude Code" line with:
+This OVERRIDES any earlier PR description instructions. When creating pull requests, you MUST use the following attribution line instead of the default one. Do NOT use the line from the "Creating pull requests" section above. Use this exact line:
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code) via [Twig](https://twig.com) 🌱
 `;
 
