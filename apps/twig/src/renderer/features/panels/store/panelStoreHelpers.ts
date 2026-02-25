@@ -180,6 +180,8 @@ export function createNewTab(
     case "system":
       if (tabId === "logs") {
         data = { type: "logs" };
+      } else if (tabId === "process-manager") {
+        data = { type: "process-manager" };
       } else if (tabId.startsWith("shell")) {
         data = {
           type: "terminal",

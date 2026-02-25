@@ -28,6 +28,7 @@ import { logger } from "../../lib/logger.js";
 import { TypedEventEmitter } from "../../lib/typed-event-emitter.js";
 import type { FsService } from "../fs/service.js";
 import type { PosthogPluginService } from "../posthog-plugin/service.js";
+import type { ProcessManagerService } from "../process-manager/service.js";
 import type { ProcessTrackingService } from "../process-tracking/service.js";
 import type { SleepService } from "../sleep/service.js";
 import {
@@ -249,6 +250,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private currentToken: string | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private processTracking: ProcessTrackingService;
+  private processManagerService: ProcessManagerService;
   private sleepService: SleepService;
   private fsService: FsService;
   private posthogPluginService: PosthogPluginService;
@@ -256,6 +258,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   constructor(
     @inject(MAIN_TOKENS.ProcessTrackingService)
     processTracking: ProcessTrackingService,
+    @inject(MAIN_TOKENS.ProcessManagerService)
+    processManagerService: ProcessManagerService,
     @inject(MAIN_TOKENS.SleepService)
     sleepService: SleepService,
     @inject(MAIN_TOKENS.FsService)
@@ -265,6 +269,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ) {
     super();
     this.processTracking = processTracking;
+    this.processManagerService = processManagerService;
     this.sleepService = sleepService;
     this.fsService = fsService;
     this.posthogPluginService = posthogPluginService;
@@ -517,9 +522,16 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
               },
               taskId,
             );
+            // Register agent subprocess with ProcessManager for child discovery
+            this.processManagerService.registerAgentSubprocess(
+              taskId,
+              info.pid,
+            );
           },
           onProcessExited: (pid) => {
             this.processTracking.unregister(pid, "agent-exited");
+            // Unregister agent subprocess
+            this.processManagerService.unregisterAgentSubprocess(taskId);
           },
         },
       });
@@ -527,6 +539,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
       const connection = this.createClientConnection(
         taskRunId,
+        taskId,
         channel,
         clientStreams,
       );
@@ -1048,6 +1061,7 @@ For git operations while detached:
 
   private createClientConnection(
     taskRunId: string,
+    taskId: string,
     _channel: string,
     clientStreams: { readable: ReadableStream; writable: WritableStream },
   ): ClientSideConnection {
@@ -1072,6 +1086,9 @@ For git operations while detached:
 
       // Detect PR URLs in bash tool results and attach to task
       this.detectAndAttachPrUrl(taskRunId, message);
+
+      // Feed execute tool calls to ProcessManagerService
+      this.processManagerService.handleAcpMessage(taskId, message);
     };
 
     const tappedReadable = createTappedReadableStream(

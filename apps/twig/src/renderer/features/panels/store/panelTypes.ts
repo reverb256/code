@@ -37,6 +37,9 @@ export type TabData =
       type: "logs";
     }
   | {
+      type: "process-manager";
+    }
+  | {
       type: "other";
       // Generic tab without specific data
     };

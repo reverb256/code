@@ -61,9 +61,11 @@ vi.mock("../../lib/process-utils.js", () => ({
 vi.mock("../../di/tokens.js", () => ({
   MAIN_TOKENS: {
     ProcessTrackingService: Symbol.for("Main.ProcessTrackingService"),
+    ProcessManagerService: Symbol.for("Main.ProcessManagerService"),
   },
 }));
 
+import type { ProcessManagerService } from "../process-manager/service.js";
 import type { ProcessTrackingService } from "../process-tracking/service.js";
 import { ShellService } from "./service.js";
 
@@ -82,6 +84,19 @@ function createMockProcessTracking(): ProcessTrackingService {
   } as unknown as ProcessTrackingService;
 }
 
+function createMockProcessManager(): ProcessManagerService {
+  return {
+    registerShellSession: vi.fn(),
+    registerWorkspaceTerminal: vi.fn(),
+    handleShellExit: vi.fn(),
+    handleAcpMessage: vi.fn(),
+    getProcessesForTask: vi.fn(() => []),
+    getProcessOutput: vi.fn(() => null),
+    killProcess: vi.fn(),
+    clearExitedProcesses: vi.fn(),
+  } as unknown as ProcessManagerService;
+}
+
 describe("ShellService", () => {
   let service: ShellService;
   let mockPtyProcess: {
@@ -95,6 +110,7 @@ describe("ShellService", () => {
   };
 
   let mockProcessTracking: ProcessTrackingService;
+  let mockProcessManager: ProcessManagerService;
 
   const createMockDisposable = () => ({ dispose: vi.fn() });
 
@@ -114,8 +130,9 @@ describe("ShellService", () => {
     mockPty.spawn.mockReturnValue(mockPtyProcess);
     mockExistsSync.mockReturnValue(true);
     mockProcessTracking = createMockProcessTracking();
+    mockProcessManager = createMockProcessManager();
 
-    service = new ShellService(mockProcessTracking);
+    service = new ShellService(mockProcessTracking, mockProcessManager);
   });
 
   afterEach(() => {
@@ -388,7 +405,10 @@ describe("ShellService", () => {
       mockPlatform.mockReturnValue("darwin");
 
       // Create a new service instance to pick up the env change
-      const newService = new ShellService(mockProcessTracking);
+      const newService = new ShellService(
+        mockProcessTracking,
+        mockProcessManager,
+      );
       await newService.create("session-1");
 
       expect(mockPty.spawn).toHaveBeenCalledWith(

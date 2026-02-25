@@ -148,6 +148,14 @@ function createDefaultPanelTree(): PanelNode {
           closeable: true,
           draggable: true,
         },
+        {
+          id: DEFAULT_TAB_IDS.PROCESS_MANAGER,
+          label: "Processes",
+          data: { type: "process-manager" },
+          component: null,
+          closeable: true,
+          draggable: true,
+        },
       ],
       activeTabId: DEFAULT_TAB_IDS.LOGS,
       showTabs: true,
@@ -966,7 +974,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     {
       name: "panel-layout-store",
       // Bump this version when the default panel structure changes to reset all layouts
-      version: 9,
+      version: 10,
       migrate: () => ({ taskLayouts: {} }),
     },
   ),

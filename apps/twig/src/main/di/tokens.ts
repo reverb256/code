@@ -23,6 +23,7 @@ export const MAIN_TOKENS = Object.freeze({
   DeepLinkService: Symbol.for("Main.DeepLinkService"),
   NotificationService: Symbol.for("Main.NotificationService"),
   OAuthService: Symbol.for("Main.OAuthService"),
+  ProcessManagerService: Symbol.for("Main.ProcessManagerService"),
   ProcessTrackingService: Symbol.for("Main.ProcessTrackingService"),
   SleepService: Symbol.for("Main.SleepService"),
   ShellService: Symbol.for("Main.ShellService"),

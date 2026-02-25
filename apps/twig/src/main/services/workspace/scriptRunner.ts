@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { randomSuffix } from "@shared/utils/id";
 import { logger } from "../../lib/logger";
 import { getMainWindow } from "../../trpc/context.js";
+import type { ProcessManagerService } from "../process-manager/service.js";
 import { ShellEvent } from "../shell/schemas.js";
 import type { ShellService } from "../shell/service.js";
 import type {
@@ -21,16 +22,19 @@ function generateSessionId(taskId: string, scriptType: string): string {
 
 export interface ScriptRunnerOptions {
   shellService: ShellService;
+  processManager: ProcessManagerService;
   onTerminalCreated: (info: WorkspaceTerminalCreatedPayload) => void;
 }
 
 export class ScriptRunner {
   private shellService: ShellService;
+  private processManager: ProcessManagerService;
   private onTerminalCreated: (info: WorkspaceTerminalCreatedPayload) => void;
   private subscribedSessions = new Set<string>();
 
   constructor(options: ScriptRunnerOptions) {
     this.shellService = options.shellService;
+    this.processManager = options.processManager;
     this.onTerminalCreated = options.onTerminalCreated;
     this.setupEventForwarding();
   }
@@ -79,11 +83,17 @@ export class ScriptRunner {
       try {
         this.subscribedSessions.add(sessionId);
 
+        // For start scripts, use 'exec' to replace the shell with the command
+        // This keeps the PTY alive as long as the command runs
+        const effectiveCommand =
+          scriptType === "start" ? `exec ${command}` : command;
+
         const session = await this.shellService.createSession({
           sessionId,
           cwd,
-          initialCommand: command,
+          initialCommand: effectiveCommand,
           additionalEnv: options.workspaceEnv,
+          skipProcessManagerRegistration: true,
         });
 
         terminalSessionIds.push(sessionId);
@@ -96,6 +106,14 @@ export class ScriptRunner {
           label: command.split(" ")[0] || command,
           status: "running",
         });
+
+        this.processManager.registerWorkspaceTerminal(
+          taskId,
+          sessionId,
+          command,
+          scriptType,
+          session.pty.pid, // Pass shell PID for child discovery
+        );
 
         if (options.failFast) {
           const result = await session.exitPromise;

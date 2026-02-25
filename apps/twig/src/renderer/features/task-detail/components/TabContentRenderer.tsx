@@ -1,6 +1,7 @@
 import { CodeEditorPanel } from "@features/code-editor/components/CodeEditorPanel";
 import { DiffEditorPanel } from "@features/code-editor/components/DiffEditorPanel";
 import type { Tab } from "@features/panels/store/panelTypes";
+import { ProcessManagerPanel } from "@features/process-manager/components/ProcessManagerPanel";
 import { ChangesPanel } from "@features/task-detail/components/ChangesPanel";
 import { FileTreePanel } from "@features/task-detail/components/FileTreePanel";
 import { TaskLogsPanel } from "@features/task-detail/components/TaskLogsPanel";
@@ -38,6 +39,9 @@ export function TabContentRenderer({
           scriptType={data.scriptType}
         />
       );
+
+    case "process-manager":
+      return <ProcessManagerPanel taskId={taskId} />;
 
     case "file":
       return (

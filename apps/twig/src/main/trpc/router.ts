@@ -17,6 +17,7 @@ import { logsRouter } from "./routers/logs.js";
 import { notificationRouter } from "./routers/notification.js";
 import { oauthRouter } from "./routers/oauth.js";
 import { osRouter } from "./routers/os.js";
+import { processManagerRouter } from "./routers/process-manager.js";
 import { processTrackingRouter } from "./routers/process-tracking.js";
 import { secureStoreRouter } from "./routers/secure-store.js";
 import { shellRouter } from "./routers/shell.js";
@@ -45,6 +46,7 @@ export const trpcRouter = router({
   oauth: oauthRouter,
   logs: logsRouter,
   os: osRouter,
+  processManager: processManagerRouter,
   processTracking: processTrackingRouter,
   sleep: sleepRouter,
   secureStore: secureStoreRouter,

@@ -1,7 +1,7 @@
 import { FileIcon } from "@components/ui/FileIcon";
 import { useCwd } from "@features/sidebar/hooks/useCwd";
 import { TabContentRenderer } from "@features/task-detail/components/TabContentRenderer";
-import { ChatCenteredText, Terminal } from "@phosphor-icons/react";
+import { ChatCenteredText, ListBullets, Terminal } from "@phosphor-icons/react";
 import type { Task } from "@shared/types";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelGroupHandle } from "react-resizable-panels";
@@ -105,6 +105,8 @@ export function useTabInjection(
             icon = <Terminal size={14} />;
           } else if (tab.data.type === "logs") {
             icon = <ChatCenteredText size={14} />;
+          } else if (tab.data.type === "process-manager") {
+            icon = <ListBullets size={14} />;
           }
         }
 

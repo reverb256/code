@@ -22,6 +22,7 @@ export const DEFAULT_PANEL_IDS = {
 export const DEFAULT_TAB_IDS = {
   LOGS: "logs",
   SHELL: "shell",
+  PROCESS_MANAGER: "process-manager",
   FILES: "files",
   CHANGES: "changes",
 } as const;

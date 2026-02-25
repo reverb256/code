@@ -96,11 +96,11 @@ describe("panelLayoutStore", () => {
       usePanelLayoutStore.getState().openFile("task-1", "src/App.tsx");
 
       // File should fall back to main-panel
-      assertTabCount(getPanelTree("task-1"), "main-panel", 3);
+      assertTabCount(getPanelTree("task-1"), "main-panel", 4);
       assertPanelLayout(getPanelTree("task-1"), [
         {
           panelId: "main-panel",
-          expectedTabs: ["logs", "shell", "file-src/App.tsx"],
+          expectedTabs: ["logs", "shell", "process-manager", "file-src/App.tsx"],
         },
       ]);
     });

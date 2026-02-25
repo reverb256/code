@@ -8,6 +8,7 @@ import { MAIN_TOKENS } from "../../di/tokens.js";
 import { logger } from "../../lib/logger.js";
 import { TypedEventEmitter } from "../../lib/typed-event-emitter.js";
 import { foldersStore } from "../../utils/store.js";
+import type { ProcessManagerService } from "../process-manager/service.js";
 import type { ProcessTrackingService } from "../process-tracking/service.js";
 import { getWorktreeLocation } from "../settingsStore.js";
 import { buildWorkspaceEnv } from "../workspace/workspaceEnv.js";
@@ -69,19 +70,25 @@ export interface CreateSessionOptions {
   taskId?: string;
   initialCommand?: string;
   additionalEnv?: Record<string, string>;
+  /** Skip process manager registration (caller will register separately) */
+  skipProcessManagerRegistration?: boolean;
 }
 
 @injectable()
 export class ShellService extends TypedEventEmitter<ShellEvents> {
   private sessions = new Map<string, ShellSession>();
   private processTracking: ProcessTrackingService;
+  private processManager: ProcessManagerService;
 
   constructor(
     @inject(MAIN_TOKENS.ProcessTrackingService)
     processTracking: ProcessTrackingService,
+    @inject(MAIN_TOKENS.ProcessManagerService)
+    processManager: ProcessManagerService,
   ) {
     super();
     this.processTracking = processTracking;
+    this.processManager = processManager;
   }
 
   async create(
@@ -93,7 +100,14 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
   }
 
   async createSession(options: CreateSessionOptions): Promise<ShellSession> {
-    const { sessionId, cwd, taskId, initialCommand, additionalEnv } = options;
+    const {
+      sessionId,
+      cwd,
+      taskId,
+      initialCommand,
+      additionalEnv,
+      skipProcessManagerRegistration,
+    } = options;
 
     const existing = this.sessions.get(sessionId);
     if (existing) {
@@ -126,6 +140,14 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       taskId,
     );
 
+    if (taskId && !skipProcessManagerRegistration) {
+      this.processManager.registerShellSession(
+        taskId,
+        sessionId,
+        `Terminal: ${workingDir}`,
+      );
+    }
+
     let resolveExit: (result: { exitCode: number }) => void;
     const exitPromise = new Promise<{ exitCode: number }>((resolve) => {
       resolveExit = resolve;
@@ -143,6 +165,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       ptyProcess.onExit(({ exitCode }) => {
         log.info(`Shell session ${sessionId} exited with code ${exitCode}`);
         this.processTracking.unregister(ptyProcess.pid, "exited");
+        this.processManager.handleShellExit(sessionId, exitCode);
         const session = this.sessions.get(sessionId);
         if (session) {
           for (const d of session.disposables) {

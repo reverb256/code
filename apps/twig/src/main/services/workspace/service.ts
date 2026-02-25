@@ -18,6 +18,7 @@ import { FileWatcherEvent } from "../file-watcher/schemas.js";
 import type { FileWatcherService } from "../file-watcher/service.js";
 import type { FocusService } from "../focus/service.js";
 import { FocusServiceEvent } from "../focus/service.js";
+import type { ProcessManagerService } from "../process-manager/service.js";
 import type { ProcessTrackingService } from "../process-tracking/service.js";
 import { getWorktreeLocation } from "../settingsStore";
 import type { ShellService } from "../shell/service.js";
@@ -123,6 +124,9 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   @inject(MAIN_TOKENS.AgentService)
   private agentService!: AgentService;
 
+  @inject(MAIN_TOKENS.ProcessManagerService)
+  private processManager!: ProcessManagerService;
+
   @inject(MAIN_TOKENS.ProcessTrackingService)
   private processTracking!: ProcessTrackingService;
 
@@ -134,6 +138,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     if (!this.scriptRunner) {
       this.scriptRunner = new ScriptRunner({
         shellService: this.shellService,
+        processManager: this.processManager,
         onTerminalCreated: (info) => {
           this.emit(WorkspaceServiceEvent.TerminalCreated, info);
         },
