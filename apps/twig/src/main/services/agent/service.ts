@@ -215,8 +215,6 @@ interface ManagedSession {
   mockNodeDir: string;
   config: SessionConfig;
   interruptReason?: InterruptReason;
-  needsRecreation: boolean;
-  recreationPromise?: Promise<ManagedSession>;
   promptPending: boolean;
   pendingContext?: string;
   configOptions?: SessionConfigOption[];
@@ -282,32 +280,20 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   public updateToken(newToken: string): void {
     this.currentToken = newToken;
 
-    // Mark all sessions for recreation - they'll be recreated before the next prompt.
-    // We don't recreate immediately because the subprocess may be mid-response or
-    // waiting on a permission prompt. Recreation happens at a safe point.
+    // Push fresh MCP config to each running session so tokens are hot-swapped
+    // without needing to recreate the session.
     for (const session of this.sessions.values()) {
-      session.needsRecreation = true;
+      const freshServers = this.buildMcpServersForSdk(session.config);
+      session.clientSideConnection
+        .extMethod("_posthog/mcp/updateServers", { servers: freshServers })
+        .catch((err) =>
+          log.warn("Failed to push MCP config update", { error: err }),
+        );
     }
 
-    log.info("Token updated, marked sessions for recreation", {
+    log.info("Token updated, pushed MCP config to sessions", {
       sessionCount: this.sessions.size,
     });
-  }
-
-  /**
-   * Mark all sessions for recreation (developer tool for testing token refresh).
-   * Sessions will be recreated before their next prompt.
-   */
-  public markAllSessionsForRecreation(): number {
-    let count = 0;
-    for (const session of this.sessions.values()) {
-      session.needsRecreation = true;
-      count++;
-    }
-    log.info("Marked all sessions for recreation (dev tool)", {
-      sessionCount: count,
-    });
-    return count;
   }
 
   /**
@@ -404,6 +390,31 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
 
     return servers;
+  }
+
+  /**
+   * Build MCP server config in SDK format (Record<string, string> headers)
+   * for use with query.setMcpServers().
+   */
+  private buildMcpServersForSdk(
+    config: SessionConfig,
+  ): Record<
+    string,
+    { type: "http"; url: string; headers: Record<string, string> }
+  > {
+    const token = this.getToken(config.credentials.apiKey);
+    const url = this.getPostHogMcpUrl(config.credentials.apiHost);
+    return {
+      posthog: {
+        type: "http" as const,
+        url,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "x-posthog-project-id": String(config.credentials.projectId),
+          "x-posthog-mcp-version": "2",
+        },
+      },
+    };
   }
 
   private buildSystemPrompt(
@@ -656,7 +667,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         lastActivityAt: Date.now(),
         mockNodeDir,
         config,
-        needsRecreation: false,
         promptPending: false,
         configOptions,
       };
@@ -725,22 +735,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     let session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
-    }
-
-    // Recreate session if marked (token was refreshed while session was active)
-    if (session.needsRecreation) {
-      if (!session.recreationPromise) {
-        log.info("Recreating session before prompt (token refreshed)", {
-          sessionId,
-        });
-        session.recreationPromise = this.recreateSession(sessionId).finally(
-          () => {
-            const s = this.sessions.get(sessionId);
-            if (s) s.recreationPromise = undefined;
-          },
-        );
-      }
-      session = await session.recreationPromise;
     }
 
     // Prepend pending context if present
@@ -1213,6 +1207,14 @@ For git operations while detached:
 
       async sessionUpdate() {
         // session/update notifications flow through the tapped stream
+      },
+
+      extMethod: async (
+        method: string,
+        _params: Record<string, unknown>,
+      ): Promise<Record<string, unknown>> => {
+        log.warn("Unhandled extMethod from agent", { method });
+        return {};
       },
 
       extNotification: async (

@@ -23,6 +23,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   type CanUseTool,
+  type McpServerConfig,
   type Options,
   type Query,
   query,
@@ -324,6 +325,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         _meta: {
           configOptions: result.configOptions,
         },
+      };
+    }
+
+    if (method === "_posthog/mcp/updateServers") {
+      const servers = params.servers as Record<string, McpServerConfig>;
+      this.logger.info("[extMethod] Received MCP server config update", {
+        serverNames: Object.keys(servers),
+      });
+      const result = await this.session.query.setMcpServers(servers);
+      this.logger.info("[extMethod] MCP servers updated", { result });
+      return {
+        added: result.added,
+        removed: result.removed,
+        errors: result.errors,
       };
     }
 

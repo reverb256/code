@@ -14,20 +14,30 @@ export async function ensureMcpServersConnected(
   logger: Logger,
   timeoutMs: number = MCP_RECONNECT_TIMEOUT_MS,
 ): Promise<void> {
+  logger.info("[MCP reconnect] checking server statuses...");
   let statuses: McpServerStatus[];
   try {
     statuses = await query.mcpServerStatus();
   } catch (err) {
-    logger.warn("Failed to check MCP server status", { error: err });
+    logger.warn("[MCP reconnect] mcpServerStatus() threw", { error: err });
     return;
   }
+
+  logger.info("[MCP reconnect] all server statuses", {
+    statuses: statuses.map((s) => ({
+      name: s.name,
+      status: s.status,
+      error: s.error,
+    })),
+  });
 
   const failedServers = statuses.filter((s) => s.status === "failed");
   if (failedServers.length === 0) {
+    logger.info("[MCP reconnect] no failed servers, skipping reconnect");
     return;
   }
 
-  logger.info("Reconnecting failed MCP servers", {
+  logger.info("[MCP reconnect] reconnecting failed servers", {
     servers: failedServers.map((s) => s.name),
   });
 
@@ -38,14 +48,16 @@ export async function ensureMcpServersConnected(
         timeoutMs,
       );
       if (result.result === "timeout") {
-        logger.warn("MCP server reconnection timed out", {
+        logger.warn("[MCP reconnect] reconnection timed out", {
           server: server.name,
         });
       } else {
-        logger.info("MCP server reconnected", { server: server.name });
+        logger.info("[MCP reconnect] reconnected successfully", {
+          server: server.name,
+        });
       }
     } catch (err) {
-      logger.warn("Failed to reconnect MCP server", {
+      logger.warn("[MCP reconnect] reconnection failed", {
         server: server.name,
         error: err,
       });
@@ -53,4 +65,5 @@ export async function ensureMcpServersConnected(
   });
 
   await Promise.all(reconnectPromises);
+  logger.info("[MCP reconnect] done");
 }
