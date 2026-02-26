@@ -142,10 +142,6 @@ export const agentRouter = router({
       getService().notifySessionContext(input.sessionId, input.context),
     ),
 
-  markAllForRecreation: publicProcedure.mutation(() =>
-    getService().markAllSessionsForRecreation(),
-  ),
-
   resetAll: publicProcedure.mutation(async () => {
     log.info("Resetting all sessions (logout/project switch)");
 

@@ -15,7 +15,6 @@ import {
 import log from "electron-log/main";
 import { container } from "./di/container.js";
 import { MAIN_TOKENS } from "./di/tokens.js";
-import type { AgentService } from "./services/agent/service.js";
 import type { UIService } from "./services/ui/service.js";
 import type { UpdatesService } from "./services/updates/service.js";
 
@@ -167,19 +166,6 @@ function buildFileMenu(): MenuItemConstructorOptions {
             label: "Clear application storage",
             click: () => {
               container.get<UIService>(MAIN_TOKENS.UIService).clearStorage();
-            },
-          },
-          {
-            label: "Mark all agent sessions for recreation",
-            click: () => {
-              const count = container
-                .get<AgentService>(MAIN_TOKENS.AgentService)
-                .markAllSessionsForRecreation();
-              dialog.showMessageBox({
-                type: "info",
-                title: "Sessions Marked",
-                message: `Marked ${count} session(s) for recreation.\n\nThey will be recreated on the next prompt.`,
-              });
             },
           },
         ],

@@ -127,6 +127,14 @@ export class Agent {
     return this.acpConnection;
   }
 
+  /**
+   * Re-read the API key callback and update process env vars
+   * so the LLM gateway picks up the fresh token.
+   */
+  refreshCredentials(): void {
+    this._configureLlmGateway();
+  }
+
   async attachPullRequestToTask(
     taskId: string,
     prUrl: string,

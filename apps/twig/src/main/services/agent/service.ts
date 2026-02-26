@@ -701,38 +701,27 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
-  private async recreateSession(taskRunId: string): Promise<ManagedSession> {
-    const existing = this.sessions.get(taskRunId);
-    if (!existing) {
-      throw new Error(`Session not found for recreation: ${taskRunId}`);
-    }
+  /**
+   * Refresh credentials for a session: update env vars via the agent
+   * and push fresh MCP server config.
+   */
+  private async refreshSessionCredentials(
+    session: ManagedSession,
+  ): Promise<void> {
+    session.agent.refreshCredentials();
+    this.setupEnvironment(session.config.credentials, session.mockNodeDir);
 
-    log.info("Recreating session", { taskRunId });
-
-    // Preserve state that should survive recreation
-    const config = existing.config;
-    const pendingContext = existing.pendingContext;
-
-    await this.cleanupSession(taskRunId);
-
-    const newSession = await this.getOrCreateSession(config, true);
-    if (!newSession) {
-      throw new Error(`Failed to recreate session: ${taskRunId}`);
-    }
-
-    // Restore preserved state
-    if (pendingContext) {
-      newSession.pendingContext = pendingContext;
-    }
-
-    return newSession;
+    const freshServers = this.buildMcpServersForSdk(session.config);
+    await session.clientSideConnection.extMethod("_posthog/mcp/updateServers", {
+      servers: freshServers,
+    });
   }
 
   async prompt(
     sessionId: string,
     prompt: ContentBlock[],
   ): Promise<PromptOutput> {
-    let session = this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -767,8 +756,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       };
     } catch (err) {
       if (isAuthError(err)) {
-        log.warn("Auth error during prompt, recreating session", { sessionId });
-        session = await this.recreateSession(sessionId);
+        log.warn("Auth error during prompt, refreshing credentials", {
+          sessionId,
+        });
+        await this.refreshSessionCredentials(session);
         const result = await session.clientSideConnection.prompt({
           sessionId: getAgentSessionId(session),
           prompt: hidePromptBlocks(finalPrompt),
