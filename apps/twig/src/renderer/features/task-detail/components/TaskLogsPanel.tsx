@@ -341,7 +341,11 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               readOnlyMessage={
-                isCloudRunTerminal ? "This cloud run has finished" : undefined
+                isCloudRunTerminal
+                  ? "This cloud run has finished"
+                  : isCloud
+                    ? "This task is running in the cloud"
+                    : undefined
               }
               slackThreadUrl={slackThreadUrl}
             />
