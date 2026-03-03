@@ -1,10 +1,50 @@
 import jwt from "jsonwebtoken";
 import { type SetupServerApi, setupServer } from "msw/node";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { createTestRepo, type TestRepo } from "../test/fixtures/api.js";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers.js";
 import { AgentServer } from "./agent-server.js";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt.js";
+
+// The Claude Agent SDK has an internal readMessages() loop that rejects with
+// "Query closed before response received" during cleanup. The SDK starts this
+// promise in the constructor without a .catch() handler, so the rejection is
+// unhandled. We suppress it here to prevent vitest from failing the suite.
+type Listener = (...args: unknown[]) => void;
+const originalListeners: Listener[] = [];
+
+beforeAll(() => {
+  originalListeners.push(
+    ...process.rawListeners("unhandledRejection").map((l) => l as Listener),
+  );
+  process.removeAllListeners("unhandledRejection");
+  process.on("unhandledRejection", (reason: unknown) => {
+    if (
+      reason instanceof Error &&
+      reason.message === "Query closed before response received"
+    ) {
+      return;
+    }
+    for (const listener of originalListeners) {
+      listener(reason);
+    }
+  });
+});
+
+afterAll(() => {
+  process.removeAllListeners("unhandledRejection");
+  for (const listener of originalListeners) {
+    process.on("unhandledRejection", listener);
+  }
+});
 
 function createTestJwt(
   payload: JwtPayload,
