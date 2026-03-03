@@ -803,7 +803,6 @@ export class SessionService {
     if (!session) return;
 
     sessionStoreSetters.appendEvents(taskRunId, [acpMsg]);
-    this.updatePromptStateFromEvents(taskRunId, [acpMsg]);
 
     const msg = acpMsg.message;
 
@@ -820,18 +819,6 @@ export class SessionService {
       }
 
       useTaskViewedStore.getState().markActivity(session.taskId);
-
-      // Process queued messages after turn completes - send all as one prompt
-      if (session.messageQueue.length > 0 && session.status === "connected") {
-        setTimeout(() => {
-          this.sendQueuedMessages(session.taskId).catch((err) => {
-            log.error("Failed to send queued messages", {
-              taskId: session.taskId,
-              error: err,
-            });
-          });
-        }, 0);
-      }
     }
 
     if ("method" in msg && msg.method === "session/update" && "params" in msg) {
@@ -916,7 +903,8 @@ export class SessionService {
 
   /**
    * Send a prompt to the agent.
-   * Queues if a prompt is already pending.
+   * For local sessions, sends directly to the adapter (which handles queueing).
+   * For cloud sessions, queues locally if a prompt is already pending.
    */
   async sendPrompt(
     taskId: string,
@@ -950,16 +938,6 @@ export class SessionService {
       throw new Error(`Session is not ready (status: ${session.status})`);
     }
 
-    if (session.isPromptPending) {
-      const promptText = extractPromptText(prompt);
-      sessionStoreSetters.enqueueMessage(taskId, promptText);
-      log.info("Message queued", {
-        taskId,
-        queueLength: session.messageQueue.length + 1,
-      });
-      return { stopReason: "queued" };
-    }
-
     let blocks = normalizePromptToBlocks(prompt);
 
     const shellExecutes = getUserShellExecutesSinceLastPrompt(session.events);
@@ -979,81 +957,18 @@ export class SessionService {
     return this.sendLocalPrompt(session, blocks);
   }
 
-  /**
-   * Send all queued messages as a single prompt.
-   * Called internally when a turn completes and there are queued messages.
-   * Queue is cleared atomically before sending - if sending fails, messages are lost
-   * (this is acceptable since the user can re-type; avoiding complex retry logic).
-   */
-  private async sendQueuedMessages(
-    taskId: string,
-  ): Promise<{ stopReason: string }> {
-    const combinedText = sessionStoreSetters.dequeueMessagesAsText(taskId);
-    if (!combinedText) {
-      return { stopReason: "skipped" };
-    }
-
-    const session = sessionStoreSetters.getSessionByTaskId(taskId);
-    if (!session) {
-      log.warn("No session found for queued messages, messages lost", {
-        taskId,
-        lostMessageLength: combinedText.length,
-      });
-      return { stopReason: "no_session" };
-    }
-
-    log.info("Sending queued messages as single prompt", {
-      taskId,
-      promptLength: combinedText.length,
-    });
-
-    let blocks = normalizePromptToBlocks(combinedText);
-
-    const shellExecutes = getUserShellExecutesSinceLastPrompt(session.events);
-    if (shellExecutes.length > 0) {
-      const contextBlocks = shellExecutesToContextBlocks(shellExecutes);
-      blocks = [...contextBlocks, ...blocks];
-    }
-
-    track(ANALYTICS_EVENTS.PROMPT_SENT, {
-      task_id: taskId,
-      is_initial: false,
-      execution_type: "local",
-      prompt_length_chars: combinedText.length,
-    });
-
-    try {
-      return await this.sendLocalPrompt(session, blocks);
-    } catch (error) {
-      // Log that queued messages were lost due to send failure
-      log.error("Failed to send queued messages, messages lost", {
-        taskId,
-        lostMessageLength: combinedText.length,
-        error,
-      });
-      throw error;
-    }
-  }
-
   private async sendLocalPrompt(
     session: AgentSession,
     blocks: ContentBlock[],
   ): Promise<{ stopReason: string }> {
-    sessionStoreSetters.updateSession(session.taskRunId, {
-      isPromptPending: true,
-      promptStartedAt: Date.now(),
-    });
+    sessionStoreSetters.incrementPendingPromptCount(session.taskRunId);
 
     try {
       const result = await trpcVanilla.agent.prompt.mutate({
         sessionId: session.taskRunId,
         prompt: blocks,
       });
-      // Clear pending state on success
-      sessionStoreSetters.updateSession(session.taskRunId, {
-        isPromptPending: false,
-        promptStartedAt: null,
-      });
+      sessionStoreSetters.decrementPendingPromptCount(session.taskRunId);
       return result;
     } catch (error) {
       const errorMessage =
@@ -1067,19 +982,15 @@ export class SessionService {
           errorMessage,
           errorDetails,
         });
+        sessionStoreSetters.decrementPendingPromptCount(session.taskRunId);
         sessionStoreSetters.updateSession(session.taskRunId, {
           status: "error",
           errorMessage:
             errorDetails ||
             "Session connection lost. Please retry or start a new session.",
-          isPromptPending: false,
-          promptStartedAt: null,
         });
       } else {
-        sessionStoreSetters.updateSession(session.taskRunId, {
-          isPromptPending: false,
-          promptStartedAt: null,
-        });
+        sessionStoreSetters.decrementPendingPromptCount(session.taskRunId);
       }
 
       throw error;
@@ -1093,14 +1004,15 @@ export class SessionService {
     const session = sessionStoreSetters.getSessionByTaskId(taskId);
     if (!session) return false;
 
-    sessionStoreSetters.updateSession(session.taskRunId, {
-      isPromptPending: false,
-      promptStartedAt: null,
-    });
-
     if (session.isCloud) {
+      sessionStoreSetters.updateSession(session.taskRunId, {
+        isPromptPending: false,
+        promptStartedAt: null,
+      });
       return this.cancelCloudPrompt(session);
     }
+
+    sessionStoreSetters.resetPendingPromptCount(session.taskRunId);
 
     try {
       const result = await trpcVanilla.agent.cancelPrompt.mutate({
@@ -1919,6 +1831,7 @@ export class SessionService {
       status: "connecting",
       isPromptPending: false,
       promptStartedAt: null,
+      pendingPromptCount: 0,
       pendingPermissions: new Map(),
       messageQueue: [],
     };

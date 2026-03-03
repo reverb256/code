@@ -40,6 +40,7 @@ export interface AgentSession {
   errorMessage?: string;
   isPromptPending: boolean;
   promptStartedAt: number | null;
+  pendingPromptCount: number;
   logUrl?: string;
   processedLineCount?: number;
   framework?: "claude";
@@ -330,6 +331,40 @@ export const sessionStoreSetters = {
       session.messageQueue = [];
     });
     return result;
+  },
+
+  incrementPendingPromptCount: (taskRunId: string) => {
+    useSessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (!session) return;
+      session.pendingPromptCount += 1;
+      session.isPromptPending = true;
+      if (session.pendingPromptCount === 1) {
+        session.promptStartedAt = Date.now();
+      }
+    });
+  },
+
+  decrementPendingPromptCount: (taskRunId: string) => {
+    useSessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (!session) return;
+      session.pendingPromptCount = Math.max(0, session.pendingPromptCount - 1);
+      session.isPromptPending = session.pendingPromptCount > 0;
+      if (session.pendingPromptCount === 0) {
+        session.promptStartedAt = null;
+      }
+    });
+  },
+
+  resetPendingPromptCount: (taskRunId: string) => {
+    useSessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (!session) return;
+      session.pendingPromptCount = 0;
+      session.isPromptPending = false;
+      session.promptStartedAt = null;
+    });
   },
 
   /** O(1) lookup using taskIdIndex */

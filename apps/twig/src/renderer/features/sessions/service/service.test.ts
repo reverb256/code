@@ -45,6 +45,9 @@ const mockSessionStoreSetters = vi.hoisted(() => ({
   removeQueuedMessage: vi.fn(),
   clearMessageQueue: vi.fn(),
   dequeueMessagesAsText: vi.fn(() => null),
+  incrementPendingPromptCount: vi.fn(),
+  decrementPendingPromptCount: vi.fn(),
+  resetPendingPromptCount: vi.fn(),
   setPendingPermissions: vi.fn(),
   getSessionByTaskId: vi.fn(),
   getSessions: vi.fn(() => ({})),
@@ -204,6 +207,7 @@ const createMockSession = (
   status: "connected",
   isPromptPending: false,
   promptStartedAt: null,
+  pendingPromptCount: 0,
   pendingPermissions: new Map(),
   messageQueue: [],
   ...overrides,
@@ -487,19 +491,20 @@ describe("SessionService", () => {
       );
     });
 
-    it("queues message when prompt is already pending", async () => {
+    it("sends directly to adapter even when prompt is pending (local sessions)", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession({ isPromptPending: true }),
+        createMockSession({ isPromptPending: true, pendingPromptCount: 1 }),
       );
+      mockTrpcAgent.prompt.mutate.mockResolvedValue({ stopReason: "end_turn" });
 
       const result = await service.sendPrompt("task-123", "Hello");
 
-      expect(result.stopReason).toBe("queued");
-      expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
-        "task-123",
-        "Hello",
-      );
+      expect(result.stopReason).toBe("end_turn");
+      expect(mockSessionStoreSetters.enqueueMessage).not.toHaveBeenCalled();
+      expect(
+        mockSessionStoreSetters.incrementPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
     });
 
     it("sends prompt via tRPC when session is ready", async () => {
@@ -516,6 +521,12 @@ describe("SessionService", () => {
         sessionId: "run-123",
         prompt: [{ type: "text", text: "Hello" }],
       });
+      expect(
+        mockSessionStoreSetters.incrementPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
+      expect(
+        mockSessionStoreSetters.decrementPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
     });
 
     it("sets session to error state on fatal error", async () => {
@@ -531,7 +542,13 @@ describe("SessionService", () => {
 
       await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow();
 
-      // Check that one of the updateSession calls set status to error
+      expect(
+        mockSessionStoreSetters.incrementPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
+      expect(
+        mockSessionStoreSetters.decrementPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
+
       const updateCalls = mockSessionStoreSetters.updateSession.mock.calls as [
         string,
         { status?: string },
@@ -554,7 +571,7 @@ describe("SessionService", () => {
       expect(result).toBe(false);
     });
 
-    it("calls cancelPrompt mutation", async () => {
+    it("calls cancelPrompt mutation and resets counter", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
@@ -564,6 +581,9 @@ describe("SessionService", () => {
       const result = await service.cancelPrompt("task-123");
 
       expect(result).toBe(true);
+      expect(
+        mockSessionStoreSetters.resetPendingPromptCount,
+      ).toHaveBeenCalledWith("run-123");
       expect(mockTrpcAgent.cancelPrompt.mutate).toHaveBeenCalledWith({
         sessionId: "run-123",
       });
