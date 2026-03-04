@@ -7,6 +7,13 @@ import type { TaskRun } from "../types.js";
 import { AgentServer } from "./agent-server.js";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt.js";
 
+interface TestableServer {
+  getInitialPromptOverride(run: TaskRun): string | null;
+  detectAndAttachPrUrl(payload: unknown, update: unknown): void;
+  detectedPrUrl: string | null;
+  buildCloudSystemPrompt(prUrl?: string | null): string;
+}
+
 function createTestJwt(
   payload: JwtPayload,
   privateKey: string,
@@ -225,14 +232,18 @@ describe("AgentServer HTTP Mode", () => {
       const run = {
         state: { initial_prompt_override: "do something else" },
       } as unknown as TaskRun;
-      const result = (s as any).getInitialPromptOverride(run);
+      const result = (s as unknown as TestableServer).getInitialPromptOverride(
+        run,
+      );
       expect(result).toBe("do something else");
     });
 
     it("returns null when override is absent", () => {
       const s = createServer();
       const run = { state: {} } as unknown as TaskRun;
-      const result = (s as any).getInitialPromptOverride(run);
+      const result = (s as unknown as TestableServer).getInitialPromptOverride(
+        run,
+      );
       expect(result).toBeNull();
     });
 
@@ -241,7 +252,9 @@ describe("AgentServer HTTP Mode", () => {
       const run = {
         state: { initial_prompt_override: "  " },
       } as unknown as TaskRun;
-      const result = (s as any).getInitialPromptOverride(run);
+      const result = (s as unknown as TestableServer).getInitialPromptOverride(
+        run,
+      );
       expect(result).toBeNull();
     });
 
@@ -250,7 +263,9 @@ describe("AgentServer HTTP Mode", () => {
       const run = {
         state: { initial_prompt_override: 42 },
       } as unknown as TaskRun;
-      const result = (s as any).getInitialPromptOverride(run);
+      const result = (s as unknown as TestableServer).getInitialPromptOverride(
+        run,
+      );
       expect(result).toBeNull();
     });
   });
@@ -274,8 +289,8 @@ describe("AgentServer HTTP Mode", () => {
         },
       };
 
-      (s as any).detectAndAttachPrUrl(payload, update);
-      expect((s as any).detectedPrUrl).toBe(
+      (s as unknown as TestableServer).detectAndAttachPrUrl(payload, update);
+      expect((s as unknown as TestableServer).detectedPrUrl).toBe(
         "https://github.com/PostHog/posthog/pull/42",
       );
     });
@@ -295,15 +310,15 @@ describe("AgentServer HTTP Mode", () => {
         },
       };
 
-      (s as any).detectAndAttachPrUrl(payload, update);
-      expect((s as any).detectedPrUrl).toBeNull();
+      (s as unknown as TestableServer).detectAndAttachPrUrl(payload, update);
+      expect((s as unknown as TestableServer).detectedPrUrl).toBeNull();
     });
   });
 
   describe("buildCloudSystemPrompt", () => {
     it("returns PR-aware prompt when prUrl is provided", () => {
       const s = createServer();
-      const prompt = (s as any).buildCloudSystemPrompt(
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
         "https://github.com/org/repo/pull/1",
       );
       expect(prompt).toContain("Do NOT create a new branch");
@@ -314,14 +329,16 @@ describe("AgentServer HTTP Mode", () => {
 
     it("returns default prompt when no prUrl", () => {
       const s = createServer();
-      const prompt = (s as any).buildCloudSystemPrompt();
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("Create a new branch");
       expect(prompt).toContain("Create a pull request");
     });
 
     it("returns default prompt when prUrl is null", () => {
       const s = createServer();
-      const prompt = (s as any).buildCloudSystemPrompt(null);
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
+        null,
+      );
       expect(prompt).toContain("Create a new branch");
       expect(prompt).toContain("Create a pull request");
     });

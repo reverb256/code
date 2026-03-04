@@ -174,7 +174,10 @@ async function withTestContext(
     const result =
       method === "detached"
         ? await manager.createDetachedWorktreeAtCommit("HEAD", "test-wt")
-        : await manager.createWorktreeForExistingBranch(branchName!, "test-wt");
+        : await manager.createWorktreeForExistingBranch(
+            branchName ?? "",
+            "test-wt",
+          );
     foldersStore.set("taskAssociations", [
       worktreeAssociation(result.worktreeName),
     ]);
@@ -251,7 +254,7 @@ describe("ArchiveService integration", () => {
         const repoName = path.basename(ctx.repoPath);
         const newWorktreePath = path.join(
           ctx.worktreeBasePath,
-          result.worktreeName!,
+          result.worktreeName ?? "",
           repoName,
         );
         expect(await pathExists(newWorktreePath)).toBe(true);
@@ -315,7 +318,7 @@ describe("ArchiveService integration", () => {
         const repoName = path.basename(ctx.repoPath);
         const newWorktreePath = path.join(
           ctx.worktreeBasePath,
-          result.worktreeName!,
+          result.worktreeName ?? "",
           repoName,
         );
 

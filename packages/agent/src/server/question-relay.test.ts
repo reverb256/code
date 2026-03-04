@@ -1,10 +1,30 @@
 import { type SetupServerApi, setupServer } from "msw/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PostHogAPIClient } from "../posthog-api.js";
 import { createTestRepo, type TestRepo } from "../test/fixtures/api.js";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers.js";
+import type { Task, TaskRun } from "../types.js";
 import { AgentServer } from "./agent-server.js";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+interface TestableAgentServer {
+  posthogAPI: PostHogAPIClient;
+  isQuestionMeta: (value: unknown) => boolean;
+  getFirstQuestionMeta: (meta: unknown) => unknown;
+  relaySlackQuestion: (payload: Record<string, unknown>, meta: unknown) => void;
+  createCloudClient: (payload: Record<string, unknown>) => {
+    requestPermission: (opts: {
+      options: unknown[];
+      toolCall: unknown;
+    }) => Promise<{
+      outcome: { outcome: string };
+      _meta?: { message?: string };
+    }>;
+  };
+  questionRelayedToSlack: boolean;
+  session: unknown;
+  relayAgentResponse: (payload: Record<string, unknown>) => Promise<void>;
+  sendInitialTaskMessage: (payload: Record<string, unknown>) => Promise<void>;
+}
 
 const TEST_PAYLOAD = {
   run_id: "test-run-id",
@@ -31,7 +51,7 @@ const QUESTION_META = {
 
 describe("Question relay", () => {
   let repo: TestRepo;
-  let server: any;
+  let server: TestableAgentServer;
   let mswServer: SetupServerApi;
   const port = 3098;
 
@@ -52,7 +72,7 @@ describe("Question relay", () => {
       mode: "interactive",
       taskId: "test-task-id",
       runId: "test-run-id",
-    });
+    }) as unknown as TestableAgentServer;
   });
 
   afterEach(async () => {
@@ -291,12 +311,12 @@ describe("Question relay", () => {
         id: "test-task-id",
         title: "t",
         description: "original task description",
-      } as any);
+      } as unknown as Task);
       vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue({
         id: "test-run-id",
         task: "test-task-id",
         state: { initial_prompt_override: "override instruction" },
-      } as any);
+      } as unknown as TaskRun);
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
@@ -318,12 +338,12 @@ describe("Question relay", () => {
         id: "test-task-id",
         title: "t",
         description: "original task description",
-      } as any);
+      } as unknown as Task);
       vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue({
         id: "test-run-id",
         task: "test-task-id",
         state: {},
-      } as any);
+      } as unknown as TaskRun);
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
