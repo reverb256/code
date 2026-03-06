@@ -192,6 +192,7 @@ function handleToolUseChunk(
   const toolInfo = toolInfoFromToolUse(chunk, {
     supportsTerminalOutput: ctx.supportsTerminalOutput,
     toolUseId: chunk.id,
+    cachedFileContent: ctx.fileContentCache,
   });
 
   const meta: Record<string, unknown> = {
@@ -221,6 +222,66 @@ function handleToolUseChunk(
   };
 }
 
+function extractTextFromContent(content: unknown): string | null {
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const item of content) {
+      if (
+        typeof item === "object" &&
+        item !== null &&
+        "text" in item &&
+        typeof (item as Record<string, unknown>).text === "string"
+      ) {
+        parts.push((item as { text: string }).text);
+      }
+    }
+    return parts.length > 0 ? parts.join("") : null;
+  }
+  if (typeof content === "string") {
+    return content;
+  }
+  return null;
+}
+
+function stripCatLineNumbers(text: string): string {
+  return text.replace(/^ *\d+[\t→]/gm, "");
+}
+
+function updateFileContentCache(
+  toolUse: { name: string; input: unknown },
+  chunk: { content?: unknown },
+  ctx: ChunkHandlerContext,
+): void {
+  const input = toolUse.input as Record<string, unknown> | undefined;
+  const filePath = input?.file_path ? String(input.file_path) : undefined;
+  if (!filePath) return;
+
+  if (toolUse.name === "Read" && !input?.limit && !input?.offset) {
+    const fileText = extractTextFromContent(chunk.content);
+    if (fileText !== null) {
+      ctx.fileContentCache[filePath] = stripCatLineNumbers(fileText);
+    }
+  } else if (toolUse.name === "Write") {
+    const content = input?.content;
+    if (typeof content === "string") {
+      ctx.fileContentCache[filePath] = content;
+    }
+  } else if (toolUse.name === "Edit") {
+    const oldString = input?.old_string;
+    const newString = input?.new_string;
+    if (
+      typeof oldString === "string" &&
+      typeof newString === "string" &&
+      filePath in ctx.fileContentCache
+    ) {
+      const current = ctx.fileContentCache[filePath];
+      ctx.fileContentCache[filePath] = input?.replace_all
+        ? current.replaceAll(oldString, newString)
+        : current.replace(oldString, newString);
+    }
+  }
+}
+
 function handleToolResultChunk(
   chunk: AnthropicContentChunk & {
     tool_use_id: string;
@@ -241,12 +302,17 @@ function handleToolResultChunk(
     return [];
   }
 
+  if (!chunk.is_error) {
+    updateFileContentCache(toolUse, chunk, ctx);
+  }
+
   const { _meta: resultMeta, ...toolUpdate } = toolUpdateFromToolResult(
     chunk as Parameters<typeof toolUpdateFromToolResult>[0],
     toolUse,
     {
       supportsTerminalOutput: ctx.supportsTerminalOutput,
       toolUseId: chunk.tool_use_id,
+      cachedFileContent: ctx.fileContentCache,
     },
   );
 

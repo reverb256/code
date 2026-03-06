@@ -17,6 +17,7 @@ import { TreeTracker } from "../tree-tracker.js";
 import type {
   AgentMode,
   DeviceInfo,
+  LogLevel,
   TaskRun,
   TreeSnapshotEvent,
 } from "../types.js";
@@ -154,6 +155,35 @@ export class AgentServer {
   private posthogAPI: PostHogAPIClient;
   private questionRelayedToSlack = false;
   private detectedPrUrl: string | null = null;
+
+  private emitConsoleLog = (
+    level: LogLevel,
+    _scope: string,
+    message: string,
+    data?: unknown,
+  ): void => {
+    if (!this.session) return;
+
+    const formatted =
+      data !== undefined ? `${message} ${JSON.stringify(data)}` : message;
+
+    const notification = {
+      jsonrpc: "2.0",
+      method: POSTHOG_NOTIFICATIONS.CONSOLE,
+      params: { level, message: formatted },
+    };
+
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+
+    this.session.logWriter.appendRawLine(
+      this.session.payload.run_id,
+      JSON.stringify(notification),
+    );
+  };
 
   constructor(config: AgentServerConfig) {
     this.config = config;
@@ -589,6 +619,17 @@ export class AgentServer {
       deviceInfo,
       logWriter,
     };
+
+    this.logger = new Logger({
+      debug: true,
+      prefix: "[AgentServer]",
+      onLog: (level, scope, message, data) => {
+        // Preserve console output (onLog suppresses default console.*)
+        const _formatted =
+          data !== undefined ? `${message} ${JSON.stringify(data)}` : message;
+        this.emitConsoleLog(level, scope, message, data);
+      },
+    });
 
     this.logger.info("Session initialized successfully");
 
@@ -1103,15 +1144,29 @@ Important:
           ...snapshot,
           device: this.session.deviceInfo,
         };
+
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.TREE_SNAPSHOT,
+          params: snapshotWithDevice,
+        };
+
         this.broadcastEvent({
           type: "notification",
           timestamp: new Date().toISOString(),
-          notification: {
-            jsonrpc: "2.0",
-            method: POSTHOG_NOTIFICATIONS.TREE_SNAPSHOT,
-            params: snapshotWithDevice,
-          },
+          notification,
         });
+
+        // Persist to log writer so cloud runs have tree snapshots
+        const { archiveUrl: _, ...paramsWithoutArchive } = snapshotWithDevice;
+        const logNotification = {
+          ...notification,
+          params: paramsWithoutArchive,
+        };
+        this.session.logWriter.appendRawLine(
+          this.session.payload.run_id,
+          JSON.stringify(logNotification),
+        );
       }
     } catch (error) {
       this.logger.error("Failed to capture tree state", error);
