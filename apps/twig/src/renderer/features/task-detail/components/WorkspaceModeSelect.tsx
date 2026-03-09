@@ -1,9 +1,9 @@
 import { useFeatureFlag } from "@hooks/useFeatureFlag";
+import type { WorkspaceMode } from "@main/services/workspace/schemas";
 import { ArrowsSplit, Cloud, Laptop } from "@phosphor-icons/react";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import { Button, DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import type { Responsive } from "@radix-ui/themes/dist/esm/props/prop-def.js";
-import type { WorkspaceMode } from "@shared/types";
 import { useMemo } from "react";
 
 export type { WorkspaceMode };
@@ -46,7 +46,8 @@ export function WorkspaceModeSelect({
   onChange,
   size = "1",
 }: WorkspaceModeSelectProps) {
-  const cloudModeEnabled = useFeatureFlag("twig-cloud-mode-toggle");
+  const cloudModeEnabled =
+    useFeatureFlag("twig-cloud-mode-toggle") || import.meta.env.DEV;
 
   const availableModes = useMemo<WorkspaceMode[]>(
     () =>

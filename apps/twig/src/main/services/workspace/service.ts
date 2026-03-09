@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import path from "node:path";
-import type { WorktreeInfo } from "@shared/types";
 import { createGitClient } from "@twig/git/client";
 import {
   getCurrentBranch,
@@ -40,12 +39,14 @@ import type {
   WorkspaceTerminalCreatedPayload,
   WorkspaceTerminalInfo,
   WorkspaceWarningPayload,
+  WorktreeInfo,
 } from "./schemas.js";
 import { ScriptRunner } from "./scriptRunner";
 import { buildWorkspaceEnv } from "./workspaceEnv";
 
 type TaskAssociation =
-  | { taskId: string; folderId: string; mode: "local" | "cloud" }
+  | { taskId: string; folderId: string; mode: "local" }
+  | { taskId: string; folderId: string | null; mode: "cloud" }
   | {
       taskId: string;
       folderId: string;
@@ -147,8 +148,18 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   private findTaskAssociation(taskId: string): TaskAssociation | null {
-    const workspace = this.workspaceRepo.findActiveByTaskId(taskId);
-    if (!workspace || !workspace.repositoryId) return null;
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
+    if (!workspace) return null;
+
+    if (workspace.mode === "cloud") {
+      return {
+        taskId,
+        folderId: workspace.repositoryId,
+        mode: "cloud",
+      };
+    }
+
+    if (!workspace.repositoryId) return null;
 
     if (workspace.mode === "worktree") {
       const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
@@ -158,14 +169,14 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         folderId: workspace.repositoryId,
         mode: "worktree",
         worktree: worktree.name,
-        branchName: worktree.branch,
+        branchName: null,
       };
     }
 
     return {
       taskId,
       folderId: workspace.repositoryId,
-      mode: workspace.mode as "local" | "cloud",
+      mode: "local",
     };
   }
 
@@ -175,10 +186,19 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   private getAllTaskAssociations(): TaskAssociation[] {
-    const workspaces = this.workspaceRepo.findAllActive();
+    const workspaces = this.workspaceRepo.findAll();
     const result: TaskAssociation[] = [];
 
     for (const workspace of workspaces) {
+      if (workspace.mode === "cloud") {
+        result.push({
+          taskId: workspace.taskId,
+          folderId: workspace.repositoryId,
+          mode: "cloud",
+        });
+        continue;
+      }
+
       if (!workspace.repositoryId) continue;
 
       if (workspace.mode === "worktree") {
@@ -189,13 +209,13 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
           folderId: workspace.repositoryId,
           mode: "worktree",
           worktree: worktree.name,
-          branchName: worktree.branch,
+          branchName: null,
         });
       } else {
         result.push({
           taskId: workspace.taskId,
           folderId: workspace.repositoryId,
-          mode: workspace.mode as "local" | "cloud",
+          mode: "local",
         });
       }
     }
@@ -262,6 +282,8 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     const associations = this.getAllTaskAssociations();
 
     for (const assoc of associations) {
+      if (assoc.mode === "cloud" || !assoc.folderId) continue;
+
       const folderPath = this.getFolderPath(assoc.folderId);
       if (!folderPath) continue;
 
@@ -298,15 +320,9 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   private updateAssociationBranchName(
-    taskId: string,
-    branchName: string,
-  ): void {
-    const workspace = this.workspaceRepo.findActiveByTaskId(taskId);
-    if (!workspace || workspace.mode !== "worktree") return;
-
-    this.worktreeRepo.updateBranch(workspace.id, branchName);
-    log.info(`Updated branch name for task ${taskId}: ${branchName}`);
-  }
+    _taskId: string,
+    _branchName: string,
+  ): void {}
 
   private async getLocalWorktreePathIfExists(
     mainRepoPath: string,
@@ -377,7 +393,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     const repositoryId = repository?.id ?? null;
 
     if (mode === "cloud") {
-      this.workspaceRepo.createActive({
+      this.workspaceRepo.create({
         taskId,
         repositoryId,
         mode: "cloud",
@@ -419,7 +435,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         }
       }
 
-      this.workspaceRepo.createActive({
+      this.workspaceRepo.create({
         taskId,
         repositoryId,
         mode: "local",
@@ -580,7 +596,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       throw new Error(`Failed to create worktree: ${String(error)}`);
     }
 
-    const createdWorkspace = this.workspaceRepo.createActive({
+    const createdWorkspace = this.workspaceRepo.create({
       taskId,
       repositoryId,
       mode: "worktree",
@@ -590,7 +606,6 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       workspaceId: createdWorkspace.id,
       name: worktree.worktreeName,
       path: worktree.worktreePath,
-      branch: worktree.branchName || "HEAD",
     });
 
     const [{ config }, workspaceEnv] = await Promise.all([
@@ -783,7 +798,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   private removeTaskAssociation(taskId: string): void {
-    const workspace = this.workspaceRepo.findActiveByTaskId(taskId);
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
     if (workspace) {
       this.worktreeRepo.deleteByWorkspaceId(workspace.id);
     }
@@ -902,7 +917,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     }
 
     const association = this.findTaskAssociation(taskId);
-    const folderPath = association
+    const folderPath = association?.folderId
       ? this.getFolderPath(association.folderId)
       : null;
     const workspaceEnv = await buildWorkspaceEnv({
@@ -937,7 +952,19 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       return null;
     }
 
-    const folderPath = this.getFolderPath(association.folderId);
+    if (association.mode === "cloud") {
+      return {
+        taskId,
+        mode: "cloud",
+        worktree: null,
+        branchName: null,
+        terminalSessionIds: [],
+      };
+    }
+
+    const folderPath = association.folderId
+      ? this.getFolderPath(association.folderId)
+      : null;
     let worktreeInfo: WorktreeInfo | null = null;
     let branchName: string | null = null;
 
@@ -994,6 +1021,23 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     const workspaces: Record<string, Workspace> = {};
 
     for (const assoc of associations) {
+      if (assoc.mode === "cloud") {
+        workspaces[assoc.taskId] = {
+          taskId: assoc.taskId,
+          folderId: assoc.folderId ?? "",
+          folderPath: "",
+          mode: "cloud",
+          worktreePath: null,
+          worktreeName: null,
+          branchName: null,
+          baseBranch: null,
+          createdAt: new Date().toISOString(),
+          terminalSessionIds: [],
+          hasStartScripts: false,
+        };
+        continue;
+      }
+
       const folderPath = this.getFolderPath(assoc.folderId);
       if (!folderPath) continue;
 
@@ -1106,14 +1150,13 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       throw new Error(`Failed to promote task to worktree: ${String(error)}`);
     }
 
-    const workspace = this.workspaceRepo.findActiveByTaskId(taskId);
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
     if (workspace) {
       this.workspaceRepo.updateMode(taskId, "worktree");
       this.worktreeRepo.create({
         workspaceId: workspace.id,
         name: worktree.worktreeName,
         path: worktree.worktreePath,
-        branch: worktree.branchName ?? branch,
       });
       log.info(`Updated task ${taskId} association to worktree mode`);
     }
