@@ -38,55 +38,75 @@ export function BillingStep({ onNext, onBack }: BillingStepProps) {
 
   return (
     <Flex align="center" height="100%" px="8">
-      <Flex direction="column" gap="6" style={{ width: "100%", maxWidth: 520 }}>
-        <Flex direction="column" gap="3">
-          <img
-            src={phWordmark}
-            alt="PostHog"
-            style={{
-              height: "40px",
-              objectFit: "contain",
-              alignSelf: "flex-start",
-            }}
-          />
-          <Text
-            size="6"
-            style={{
-              color: "var(--gray-12)",
-              lineHeight: 1.3,
-            }}
-          >
-            Choose your plan
-          </Text>
+      <Flex
+        direction="column"
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          height: "100%",
+          paddingTop: 80,
+          paddingBottom: 40,
+        }}
+      >
+        <img
+          src={phWordmark}
+          alt="PostHog"
+          style={{
+            height: "40px",
+            objectFit: "contain",
+            alignSelf: "flex-start",
+          }}
+        />
+
+        <Flex
+          direction="column"
+          justify="center"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+        >
+          <Flex direction="column" gap="6">
+            <Text
+              size="6"
+              style={{
+                color: "var(--gray-12)",
+                lineHeight: 1.3,
+              }}
+            >
+              Choose your plan
+            </Text>
+            <Flex direction="column" gap="3">
+              {/* Free Plan */}
+              <PlanCard
+                name="Free"
+                price="$0"
+                period="/month"
+                features={FREE_FEATURES}
+                isSelected={selectedPlan === "free"}
+                onSelect={() => selectPlan("free")}
+              />
+
+              {/* Pro Plan */}
+              <PlanCard
+                name="Pro"
+                price="$200"
+                period="/month"
+                features={PRO_FEATURES}
+                isSelected={selectedPlan === "pro"}
+                onSelect={() => selectPlan("pro")}
+                recommended
+              />
+            </Flex>
+            <Text
+              size="1"
+              mt="3"
+              style={{ color: "var(--gray-12)", opacity: 0.5 }}
+            >
+              * Usage is limited to "human" level usage, this cannot be used as
+              your api key. If you hit this limit, please contact support.
+            </Text>
+          </Flex>
         </Flex>
 
-        <Flex direction="column" gap="3">
-          {/* Free Plan */}
-          <PlanCard
-            name="Free"
-            price="$0"
-            period="/month"
-            features={FREE_FEATURES}
-            isSelected={selectedPlan === "free"}
-            onSelect={() => selectPlan("free")}
-          />
-
-          {/* Pro Plan */}
-          <PlanCard
-            name="Pro"
-            price="$200"
-            period="/month"
-            features={PRO_FEATURES}
-            isSelected={selectedPlan === "pro"}
-            onSelect={() => selectPlan("pro")}
-            recommended
-          />
-        </Flex>
-        <Text size="1" style={{ color: "var(--gray-12)", opacity: 0.5 }}>
-          * Usage is limited to "human" level usage, this cannot be used as your
-          api key. If you hit this limit, please contact support.
-        </Text>
-        <Flex gap="3" align="center">
+        <Flex gap="3" align="center" flexShrink="0">
           <Button
             size="3"
             variant="ghost"

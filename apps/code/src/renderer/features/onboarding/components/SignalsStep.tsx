@@ -106,44 +106,62 @@ export function SignalsStep({ onNext, onBack }: SignalsStepProps) {
 
   return (
     <Flex align="center" height="100%" px="8">
-      <Flex direction="column" gap="6" style={{ width: "100%", maxWidth: 520 }}>
-        <Flex direction="column" gap="3">
-          <img
-            src={phWordmark}
-            alt="PostHog"
-            style={{
-              height: "40px",
-              objectFit: "contain",
-              alignSelf: "flex-start",
-            }}
-          />
-          <Text
-            size="6"
-            style={{
-              color: "var(--gray-12)",
-              lineHeight: 1.3,
-            }}
-          >
-            Enable "the inbox"
-          </Text>
-          <Text size="2" style={{ color: "var(--gray-12)", opacity: 0.7 }}>
-            Automatically analyze your product data and surface actionable
-            insights. Choose which sources to enable for this project.
-          </Text>
-        </Flex>
-
-        <SignalSourceToggles
-          value={sources}
-          onChange={setUserSelections}
-          disabled={isSaving}
+      <Flex
+        direction="column"
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          height: "100%",
+          paddingTop: 80,
+          paddingBottom: 40,
+        }}
+      >
+        <img
+          src={phWordmark}
+          alt="PostHog"
+          style={{
+            height: "40px",
+            objectFit: "contain",
+            alignSelf: "flex-start",
+          }}
         />
+
+        <Flex
+          direction="column"
+          justify="center"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+        >
+          <Flex direction="column" gap="6">
+            <Flex direction="column" gap="3">
+              <Text
+                size="6"
+                style={{
+                  color: "var(--gray-12)",
+                  lineHeight: 1.3,
+                }}
+              >
+                Enable "the inbox"
+              </Text>
+              <Text size="2" style={{ color: "var(--gray-12)", opacity: 0.7 }}>
+                Automatically analyze your product data and surface actionable
+                insights. Choose which sources to enable for this project.
+              </Text>
+            </Flex>
+
+            <SignalSourceToggles
+              value={sources}
+              onChange={setUserSelections}
+              disabled={isSaving}
+            />
+          </Flex>
+        </Flex>
 
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, delay: 0.15 }}
         >
-          <Flex gap="3" align="center">
+          <Flex gap="3" align="center" flexShrink="0">
             <Button
               size="3"
               variant="ghost"

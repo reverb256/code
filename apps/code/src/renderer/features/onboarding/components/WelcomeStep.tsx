@@ -6,7 +6,7 @@ import {
   Robot,
   Stack,
 } from "@phosphor-icons/react";
-import { Box, Button, Flex } from "@radix-ui/themes";
+import { Button, Flex } from "@radix-ui/themes";
 import phWordmark from "@renderer/assets/images/wordmark-alt.png";
 import { FeatureListItem } from "./FeatureListItem";
 
@@ -49,18 +49,15 @@ const FEATURES = [
 
 export function WelcomeStep({ onNext }: WelcomeStepProps) {
   return (
-    <Flex height="100%">
-      {/* Left side - features list */}
+    <Flex align="center" height="100%" px="8">
       <Flex
         direction="column"
-        justify="center"
-        gap="4"
         style={{
           width: "100%",
           maxWidth: 520,
-          paddingLeft: "var(--space-8)",
-          paddingRight: "var(--space-6)",
           height: "100%",
+          paddingTop: 80,
+          paddingBottom: 40,
         }}
       >
         <Flex direction="column" gap="3" mb="4">
@@ -75,23 +72,29 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           />
         </Flex>
 
-        <Flex direction="column" gap="3">
-          {FEATURES.map((feature) => (
-            <FeatureListItem
-              key={feature.title}
-              icon={feature.icon}
-              title={feature.title}
-              description={feature.description}
-            />
-          ))}
+        <Flex
+          direction="column"
+          justify="center"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+        >
+          <Flex direction="column" gap="3">
+            {FEATURES.map((feature) => (
+              <FeatureListItem
+                key={feature.title}
+                icon={feature.icon}
+                title={feature.title}
+                description={feature.description}
+              />
+            ))}
+          </Flex>
         </Flex>
 
-        <Box mt="2">
+        <Flex gap="3" align="center" flexShrink="0" mt="4">
           <Button size="3" onClick={onNext}>
             Get Started
             <ArrowRight size={16} />
           </Button>
-        </Box>
+        </Flex>
       </Flex>
     </Flex>
   );
