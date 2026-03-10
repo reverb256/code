@@ -8,7 +8,6 @@ import type { Logger } from "../../../utils/logger.js";
 import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp.js";
 import {
   getClaudePlansDir,
-  getLatestAssistantText,
   isClaudePlanFilePath,
   isPlanReady,
 } from "../plan/utils.js";
@@ -194,11 +193,13 @@ async function applyPlanApproval(
     ?.customInput as string | undefined;
   const feedback = customInput?.trim();
 
+  const planText = extractPlanText(updatedInput);
+  const rejectedPlanSuffix = planText ? `\n\nRejected plan:\n${planText}` : "";
   const message = feedback
-    ? `User rejected the plan with feedback: ${feedback}`
-    : "User rejected the plan. Wait for the user to provide direction.";
+    ? `User rejected the plan with feedback: ${feedback}${rejectedPlanSuffix}`
+    : `The agent proposed a plan that was rejected by the user. The user chose to stay in plan mode rather than proceed with implementation.${rejectedPlanSuffix}`;
   await emitToolDenial(context, message);
-  return { behavior: "deny", message, interrupt: !feedback };
+  return { behavior: "deny", message, interrupt: true };
 }
 
 async function handleEnterPlanModeTool(
@@ -222,9 +223,7 @@ async function handleExitPlanModeTool(
   const { session, toolInput, fileContentCache } = context;
 
   const planFromFile = getPlanFromFile(session, fileContentCache);
-  const latestText = getLatestAssistantText(session.notificationHistory);
-  const fallbackPlan = planFromFile || (latestText ?? undefined);
-  const updatedInput = ensurePlanInInput(toolInput, fallbackPlan);
+  const updatedInput = ensurePlanInInput(toolInput, planFromFile);
   const planText = extractPlanText(updatedInput);
 
   const validationResult = await validatePlanContent(planText, context);
