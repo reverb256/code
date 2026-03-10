@@ -14,6 +14,7 @@ import { MainSidebar } from "@features/sidebar/components/MainSidebar";
 import { TaskDetail } from "@features/task-detail/components/TaskDetail";
 import { TaskInput } from "@features/task-detail/components/TaskInput";
 import { useTasks } from "@features/tasks/hooks/useTasks";
+import { UsageView } from "@features/usage/components/UsageView";
 import { useConnectivity } from "@hooks/useConnectivity";
 import { useIntegrations } from "@hooks/useIntegrations";
 import { Box, Flex } from "@radix-ui/themes";
@@ -79,6 +80,8 @@ export function MainLayout() {
           {view.type === "inbox" && !inboxEnabled && <TaskInput />}
 
           {view.type === "archived" && <ArchivedTasksView />}
+
+          {view.type === "usage" && <UsageView />}
         </Box>
 
         {view.type === "task-detail" && view.data && (

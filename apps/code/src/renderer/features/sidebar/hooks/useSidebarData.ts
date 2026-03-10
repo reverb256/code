@@ -59,7 +59,8 @@ interface ViewState {
     | "settings"
     | "folder-settings"
     | "inbox"
-    | "archived";
+    | "archived"
+    | "usage";
   data?: Task;
 }
 

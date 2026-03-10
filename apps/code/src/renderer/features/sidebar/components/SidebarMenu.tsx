@@ -14,13 +14,18 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { usePinnedTasks } from "../hooks/usePinnedTasks";
 import { useSidebarData } from "../hooks/useSidebarData";
 import { useTaskViewed } from "../hooks/useTaskViewed";
-import { InboxItem, NewTaskItem } from "./items/HomeItem";
+import { InboxItem, NewTaskItem, UsageItem } from "./items/HomeItem";
 import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
 function SidebarMenuComponent() {
-  const { view, navigateToTask, navigateToTaskInput, navigateToInbox } =
-    useNavigationStore();
+  const {
+    view,
+    navigateToTask,
+    navigateToTaskInput,
+    navigateToInbox,
+    navigateToUsage,
+  } = useNavigationStore();
 
   const { data: allTasks = [] } = useTasks();
 
@@ -174,6 +179,13 @@ function SidebarMenuComponent() {
               />
             </Box>
           )}
+
+          <Box mb="2">
+            <UsageItem
+              isActive={view.type === "usage"}
+              onClick={navigateToUsage}
+            />
+          </Box>
 
           {sidebarData.isLoading ? (
             <SidebarItem

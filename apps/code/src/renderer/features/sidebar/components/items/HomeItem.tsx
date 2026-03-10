@@ -1,4 +1,4 @@
-import { EnvelopeSimple, Plus } from "@phosphor-icons/react";
+import { ChartBar, EnvelopeSimple, Plus } from "@phosphor-icons/react";
 import { SidebarItem } from "../SidebarItem";
 
 interface NewTaskItemProps {
@@ -27,6 +27,23 @@ interface InboxItemProps {
 function formatSignalCount(count: number): string {
   if (count > 99) return "99+";
   return String(count);
+}
+
+interface UsageItemProps {
+  isActive: boolean;
+  onClick: () => void;
+}
+
+export function UsageItem({ isActive, onClick }: UsageItemProps) {
+  return (
+    <SidebarItem
+      depth={0}
+      icon={<ChartBar size={16} weight={isActive ? "fill" : "regular"} />}
+      label="Usage"
+      isActive={isActive}
+      onClick={onClick}
+    />
+  );
 }
 
 export function InboxItem({ isActive, onClick, signalCount }: InboxItemProps) {

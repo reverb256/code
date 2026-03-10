@@ -8,6 +8,7 @@ import { DatabaseService } from "../db/service.js";
 import { AgentService } from "../services/agent/service.js";
 import { AppLifecycleService } from "../services/app-lifecycle/service.js";
 import { ArchiveService } from "../services/archive/service.js";
+import { ClaudeStatsService } from "../services/claude-stats/service.js";
 import { CloudTaskService } from "../services/cloud-task/service.js";
 import { ConnectivityService } from "../services/connectivity/service.js";
 import { ContextMenuService } from "../services/context-menu/service.js";
@@ -76,5 +77,7 @@ container.bind(MAIN_TOKENS.UpdatesService).to(UpdatesService);
 container.bind(MAIN_TOKENS.TaskLinkService).to(TaskLinkService);
 container.bind(MAIN_TOKENS.WatcherRegistryService).to(WatcherRegistryService);
 container.bind(MAIN_TOKENS.WorkspaceService).to(WorkspaceService);
+
+container.bind(MAIN_TOKENS.ClaudeStatsService).to(ClaudeStatsService);
 
 container.bind(MAIN_TOKENS.SettingsStore).toConstantValue(settingsStore);

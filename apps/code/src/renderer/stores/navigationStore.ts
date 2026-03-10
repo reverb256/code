@@ -17,7 +17,8 @@ type ViewType =
   | "task-input"
   | "folder-settings"
   | "inbox"
-  | "archived";
+  | "archived"
+  | "usage";
 
 interface ViewState {
   type: ViewType;
@@ -35,6 +36,7 @@ interface NavigationStore {
   navigateToFolderSettings: (folderId: string) => void;
   navigateToInbox: () => void;
   navigateToArchived: () => void;
+  navigateToUsage: () => void;
   goBack: () => void;
   goForward: () => void;
   canGoBack: () => boolean;
@@ -57,6 +59,9 @@ const isSameView = (view1: ViewState, view2: ViewState): boolean => {
     return true;
   }
   if (view1.type === "archived" && view2.type === "archived") {
+    return true;
+  }
+  if (view1.type === "usage" && view2.type === "usage") {
     return true;
   }
   return true;
@@ -162,6 +167,10 @@ export const useNavigationStore = create<NavigationStore>()(
 
         navigateToArchived: () => {
           navigate({ type: "archived" });
+        },
+
+        navigateToUsage: () => {
+          navigate({ type: "usage" });
         },
 
         goBack: () => {
