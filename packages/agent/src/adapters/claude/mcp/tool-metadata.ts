@@ -7,28 +7,6 @@ export interface McpToolMetadata {
   description?: string;
 }
 
-export const POSTHOG_READ_ONLY_TOOLS: Set<string> = new Set([
-  "mcp__posthog__read-data-schema",
-  "mcp__posthog__read-data-warehouse-schema",
-  "mcp__posthog__dashboard-get",
-  "mcp__posthog__dashboards-get-all",
-  "mcp__posthog__docs-search",
-  "mcp__posthog__error-details",
-  "mcp__posthog__list-errors",
-  "mcp__posthog__experiment-results-get",
-  "mcp__posthog__insight-query",
-  "mcp__posthog__get-llm-total-costs-for-project",
-  "mcp__posthog__organization-details-get",
-  "mcp__posthog__organizations-get",
-  "mcp__posthog__projects-get",
-  "mcp__posthog__surveys-global-stats",
-  "mcp__posthog__survey-stats",
-  "mcp__posthog__logs-query",
-  "mcp__posthog__logs-list-attributes",
-  "mcp__posthog__logs-list-attribute-values",
-  "mcp__posthog__debug-mcp-ui-apps",
-]);
-
 const mcpToolMetadataCache: Map<string, McpToolMetadata> = new Map();
 
 const PENDING_RETRY_INTERVAL_MS = 1_000;
@@ -112,9 +90,6 @@ export function getMcpToolMetadata(
 }
 
 export function isMcpToolReadOnly(toolName: string): boolean {
-  if (POSTHOG_READ_ONLY_TOOLS.has(toolName)) {
-    return true;
-  }
   const metadata = mcpToolMetadataCache.get(toolName);
   return metadata?.readOnly === true;
 }
