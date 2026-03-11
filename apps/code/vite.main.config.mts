@@ -13,13 +13,13 @@ import { tmpdir } from "node:os";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { unzipSync } from "fflate";
-import { defineConfig, loadEnv, type Plugin } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import {
   CONTEXT_MILL_ZIP_URL,
   SKILLS_ZIP_URL,
 } from "@posthog/agent/skills/constants";
+import { unzipSync } from "fflate";
+import { defineConfig, loadEnv, type Plugin } from "vite";
+import tsconfigPaths from "vite-tsconfig-paths";
 import {
   createForceDevModeDefine,
   createPosthogPlugin,
