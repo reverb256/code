@@ -33,6 +33,7 @@ import type { FsService } from "../fs/service.js";
 import type { PosthogPluginService } from "../posthog-plugin/service.js";
 import type { ProcessTrackingService } from "../process-tracking/service.js";
 import type { SleepService } from "../sleep/service.js";
+import { discoverExternalPlugins } from "./discover-plugins.js";
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
@@ -661,6 +662,26 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
       const mcpServers = await this.buildMcpServers(credentials);
 
+      let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
+        [];
+      try {
+        externalPlugins = await discoverExternalPlugins({
+          userDataDir: app.getPath("userData"),
+          repoPath,
+        });
+      } catch (err) {
+        log.warn("Failed to discover external plugins", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      const plugins = [
+        {
+          type: "local" as const,
+          path: this.posthogPluginService.getPluginPath(),
+        },
+        ...externalPlugins,
+      ];
+
       let configOptions: SessionConfigOption[] | undefined;
       let agentSessionId: string;
 
@@ -710,12 +731,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
                 ...(additionalDirectories?.length && {
                   additionalDirectories,
                 }),
-                plugins: [
-                  {
-                    type: "local" as const,
-                    path: this.posthogPluginService.getPluginPath(),
-                  },
-                ],
+                plugins,
               },
             },
           },
@@ -743,12 +759,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             claudeCode: {
               options: {
                 ...(additionalDirectories?.length && { additionalDirectories }),
-                plugins: [
-                  {
-                    type: "local" as const,
-                    path: this.posthogPluginService.getPluginPath(),
-                  },
-                ],
+                plugins,
               },
             },
           },
