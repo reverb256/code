@@ -17,6 +17,7 @@ import {
   type OnModeChange,
 } from "../hooks.js";
 import type { CodeExecutionMode } from "../tools.js";
+import type { EffortLevel } from "../types.js";
 import { DEFAULT_MODEL } from "./models.js";
 import type { SettingsManager } from "./settings.js";
 
@@ -43,6 +44,7 @@ export interface BuildOptionsParams {
   onModeChange?: OnModeChange;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
+  effort?: EffortLevel;
 }
 
 const BRANCH_NAMING_INSTRUCTIONS = `
@@ -293,6 +295,10 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   if (params.additionalDirectories) {
     options.additionalDirectories = params.additionalDirectories;
+  }
+
+  if (params.effort) {
+    options.effort = params.effort;
   }
 
   clearStatsigCache();

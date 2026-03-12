@@ -38,6 +38,7 @@ import {
   AgentServiceEvent,
   type AgentServiceEvents,
   type Credentials,
+  type EffortLevel,
   type InterruptReason,
   type PromptOutput,
   type ReconnectSessionInput,
@@ -200,6 +201,8 @@ interface SessionConfig {
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
   customInstructions?: string;
+  /** Effort level for Claude sessions */
+  effort?: EffortLevel;
 }
 
 interface ManagedSession {
@@ -632,6 +635,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       additionalDirectories,
       permissionMode,
       customInstructions,
+      effort,
     } = config;
 
     // Preview sessions don't need a real repo — use a temp directory
@@ -783,6 +787,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
                 ...(additionalDirectories?.length && {
                   additionalDirectories,
                 }),
+                ...(effort && { effort }),
                 plugins,
               },
             },
@@ -811,6 +816,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             claudeCode: {
               options: {
                 ...(additionalDirectories?.length && { additionalDirectories }),
+                ...(effort && { effort }),
                 plugins,
               },
             },
@@ -1551,6 +1557,7 @@ For git operations while detached:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:
         "customInstructions" in params ? params.customInstructions : undefined,
+      effort: "effort" in params ? params.effort : undefined,
     };
   }
 
