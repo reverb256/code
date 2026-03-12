@@ -129,6 +129,17 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
     requestFocus(taskId);
   }, [taskId, requestFocus]);
 
+  useEffect(() => {
+    trpcVanilla.agent.reportActivity.mutate({ taskId }).catch(() => {});
+    const heartbeat = setInterval(
+      () => {
+        trpcVanilla.agent.reportActivity.mutate({ taskId }).catch(() => {});
+      },
+      5 * 60 * 1000,
+    );
+    return () => clearInterval(heartbeat);
+  }, [taskId]);
+
   // Keep cloud session title aligned with latest task metadata.
   useEffect(() => {
     if (!isCloud) return;

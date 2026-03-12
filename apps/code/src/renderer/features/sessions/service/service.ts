@@ -123,6 +123,23 @@ export class SessionService {
       onStatusChange?: () => void;
     }
   >();
+  private idleKilledSubscription: { unsubscribe: () => void } | null = null;
+
+  constructor() {
+    this.idleKilledSubscription =
+      trpcVanilla.agent.onSessionIdleKilled.subscribe(undefined, {
+        onData: (event) => {
+          const { taskRunId } = event as { taskRunId: string; taskId: string };
+          log.info("Session idle-killed by main process", { taskRunId });
+          this.unsubscribeFromChannel(taskRunId);
+          sessionStoreSetters.removeSession(taskRunId);
+          removePersistedConfigOptions(taskRunId);
+        },
+        onError: (err) => {
+          log.debug("Idle-killed subscription error", { error: err });
+        },
+      });
+  }
 
   /**
    * Connect to a task session.
@@ -769,6 +786,8 @@ export class SessionService {
     this.connectingTasks.clear();
     this.previewAbort?.abort();
     this.previewAbort = null;
+    this.idleKilledSubscription?.unsubscribe();
+    this.idleKilledSubscription = null;
   }
 
   private updatePromptStateFromEvents(

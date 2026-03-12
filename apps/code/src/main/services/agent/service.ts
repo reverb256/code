@@ -252,10 +252,13 @@ interface PendingPermission {
 
 @injectable()
 export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
+  private static readonly IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+
   private sessions = new Map<string, ManagedSession>();
   private currentToken: string | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private mockNodeReady = false;
+  private idleTimeoutHandles = new Map<string, ReturnType<typeof setTimeout>>();
   private processTracking: ProcessTrackingService;
   private sleepService: SleepService;
   private fsService: FsService;
@@ -349,6 +352,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
 
     this.pendingPermissions.delete(key);
+    this.recordActivity(taskRunId);
   }
 
   /**
@@ -376,6 +380,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
 
     this.pendingPermissions.delete(key);
+    this.recordActivity(taskRunId);
   }
 
   /**
@@ -390,6 +395,36 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
     log.debug("No active sessions found");
     return false;
+  }
+
+  public reportActivity(taskId: string | null): void {
+    if (!taskId) return;
+    for (const session of this.sessions.values()) {
+      if (session.taskId === taskId) {
+        this.recordActivity(session.taskRunId);
+      }
+    }
+  }
+
+  private recordActivity(taskRunId: string): void {
+    const existing = this.idleTimeoutHandles.get(taskRunId);
+    if (existing) clearTimeout(existing);
+
+    const handle = setTimeout(() => {
+      this.idleTimeoutHandles.delete(taskRunId);
+      const session = this.sessions.get(taskRunId);
+      if (!session || session.promptPending) return;
+      log.info("Killing idle session", { taskRunId, taskId: session.taskId });
+      this.emit(AgentServiceEvent.SessionIdleKilled, {
+        taskRunId,
+        taskId: session.taskId,
+      });
+      this.cleanupSession(taskRunId).catch((err) => {
+        log.error("Failed to cleanup idle session", { taskRunId, err });
+      });
+    }, AgentService.IDLE_TIMEOUT_MS);
+
+    this.idleTimeoutHandles.set(taskRunId, handle);
   }
 
   private getToken(fallback: string): string {
@@ -912,6 +947,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     session.lastActivityAt = Date.now();
     session.promptPending = true;
+    this.recordActivity(sessionId);
     this.sleepService.acquire(sessionId);
 
     const promptJson = JSON.stringify(finalPrompt);
@@ -947,6 +983,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       throw err;
     } finally {
       session.promptPending = false;
+      session.lastActivityAt = Date.now();
+      this.recordActivity(sessionId);
       this.sleepService.release(sessionId);
 
       if (!this.hasActiveSessions()) {
@@ -1138,6 +1176,8 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    for (const handle of this.idleTimeoutHandles.values()) clearTimeout(handle);
+    this.idleTimeoutHandles.clear();
     const sessionIds = Array.from(this.sessions.keys());
     log.info("Cleaning up all agent sessions", {
       sessionCount: sessionIds.length,
@@ -1224,6 +1264,12 @@ For git operations while detached:
       }
 
       this.sessions.delete(taskRunId);
+
+      const handle = this.idleTimeoutHandles.get(taskRunId);
+      if (handle) {
+        clearTimeout(handle);
+        this.idleTimeoutHandles.delete(taskRunId);
+      }
     }
   }
 

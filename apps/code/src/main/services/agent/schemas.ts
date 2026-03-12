@@ -183,11 +183,17 @@ export const subscribeSessionInput = z.object({
   taskRunId: z.string(),
 });
 
+// Report activity input — keeps the idle timeout debounce alive for the given task
+export const reportActivityInput = z.object({
+  taskId: z.string().nullable(),
+});
+
 // Agent events
 export const AgentServiceEvent = {
   SessionEvent: "session-event",
   PermissionRequest: "permission-request",
   SessionsIdle: "sessions-idle",
+  SessionIdleKilled: "session-idle-killed",
 } as const;
 
 export interface AgentSessionEventPayload {
@@ -203,10 +209,16 @@ export type PermissionRequestPayload = Omit<
   taskRunId: string;
 };
 
+export interface SessionIdleKilledPayload {
+  taskRunId: string;
+  taskId: string;
+}
+
 export interface AgentServiceEvents {
   [AgentServiceEvent.SessionEvent]: AgentSessionEventPayload;
   [AgentServiceEvent.PermissionRequest]: PermissionRequestPayload;
   [AgentServiceEvent.SessionsIdle]: undefined;
+  [AgentServiceEvent.SessionIdleKilled]: SessionIdleKilledPayload;
 }
 
 // Permission response input for tRPC
