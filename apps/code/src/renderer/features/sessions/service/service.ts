@@ -123,6 +123,21 @@ export class SessionService {
       onStatusChange?: () => void;
     }
   >();
+  private idleKilledSubscription: { unsubscribe: () => void } | null = null;
+
+  constructor() {
+    this.idleKilledSubscription =
+      trpcClient.agent.onSessionIdleKilled.subscribe(undefined, {
+        onData: (event: { taskRunId: string }) => {
+          const { taskRunId } = event;
+          log.info("Session idle-killed by main process", { taskRunId });
+          this.teardownSession(taskRunId);
+        },
+        onError: (err: unknown) => {
+          log.debug("Idle-killed subscription error", { error: err });
+        },
+      });
+  }
 
   /**
    * Connect to a task session.
@@ -769,6 +784,8 @@ export class SessionService {
     this.connectingTasks.clear();
     this.previewAbort?.abort();
     this.previewAbort = null;
+    this.idleKilledSubscription?.unsubscribe();
+    this.idleKilledSubscription = null;
   }
 
   private updatePromptStateFromEvents(
@@ -1717,9 +1734,7 @@ export class SessionService {
       throw new Error("Unable to reach server. Please check your connection.");
     }
 
-    const prefetchedLogs = logUrl
-      ? await this.fetchSessionLogs(logUrl, taskRunId)
-      : { rawEntries: [] as StoredLogEntry[], adapter: undefined };
+    const prefetchedLogs = await this.fetchSessionLogs(logUrl, taskRunId);
 
     // Determine sessionId: undefined = use from logs, null = strip (fresh), string = use as-is
     const sessionId =

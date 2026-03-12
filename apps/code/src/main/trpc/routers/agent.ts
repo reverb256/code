@@ -14,6 +14,7 @@ import {
   promptInput,
   promptOutput,
   reconnectSessionInput,
+  recordActivityInput,
   respondToPermissionInput,
   sessionResponseSchema,
   setConfigOptionInput,
@@ -181,6 +182,20 @@ export const agentRouter = router({
     sleepService.cleanup();
 
     log.info("All sessions reset successfully");
+  }),
+
+  recordActivity: publicProcedure
+    .input(recordActivityInput)
+    .mutation(({ input }) => getService().recordActivity(input.taskRunId)),
+
+  onSessionIdleKilled: publicProcedure.subscription(async function* (opts) {
+    const service = getService();
+    for await (const event of service.toIterable(
+      AgentServiceEvent.SessionIdleKilled,
+      { signal: opts.signal },
+    )) {
+      yield event;
+    }
   }),
 
   getGatewayModels: publicProcedure
