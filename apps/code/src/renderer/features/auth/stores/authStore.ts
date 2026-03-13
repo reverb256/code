@@ -187,41 +187,6 @@ async function attemptRefreshWithActivityCheck(
   }
 }
 
-function buildOrgProjectsMapFromUser(
-  user: Record<string, unknown>,
-): Record<string, OrgProjects> {
-  const org = user?.organization as
-    | {
-        id?: string;
-        name?: string;
-        teams?: { id: number | string; name?: string }[];
-      }
-    | undefined;
-
-  if (!org?.id) return {};
-
-  const orgId = String(org.id);
-  const teams = Array.isArray(org.teams) ? org.teams : [];
-
-  return {
-    [orgId]: {
-      orgName: org.name ?? "Unknown Organization",
-      projects: teams
-        .filter(
-          (t): t is { id: number | string; name?: string } =>
-            t != null &&
-            typeof t === "object" &&
-            (typeof t.id === "number" || typeof t.id === "string"),
-        )
-        .map((t) => ({
-          id: Number(t.id),
-          name: t.name ?? `Project ${t.id}`,
-        }))
-        .filter((t) => !Number.isNaN(t.id)),
-    },
-  };
-}
-
 async function buildOrgProjectsMap(
   user: Record<string, unknown>,
   client: PostHogAPIClient,
@@ -231,35 +196,88 @@ async function buildOrgProjectsMap(
     name?: string;
   }[];
 
-  const entries = await Promise.all(
-    orgs.map(async (org) => {
-      const projects = await client.listOrgProjects(org.id).catch((err) => {
-        log.warn("Failed to fetch projects for org", { orgId: org.id, err });
-        return null;
-      });
-      return { orgId: org.id, orgName: org.name, projects };
-    }),
-  );
-
-  const allFailed =
-    entries.length > 0 && entries.every((e) => e.projects === null);
-
-  if (allFailed) {
-    log.warn(
-      "All org project calls failed, falling back to user organization teams",
-    );
-    return buildOrgProjectsMapFromUser(user);
+  const map: Record<string, OrgProjects> = {};
+  for (const org of orgs) {
+    map[org.id] = {
+      orgName: org.name ?? "Unknown Organization",
+      projects: [],
+    };
   }
 
-  return Object.fromEntries(
-    entries.map((e) => [
-      e.orgId,
-      {
-        orgName: e.orgName ?? "Unknown Organization",
-        projects: e.projects ?? [],
-      },
-    ]),
-  );
+  // Try the first org to check if org-level endpoints are accessible.
+  // If not (e.g. project-scoped token), skip the rest and fall back to
+  // the project-scoped endpoint.
+  if (orgs.length > 0) {
+    try {
+      map[orgs[0].id].projects = await client.listOrgProjects(orgs[0].id);
+
+      // First org worked, fetch the rest in parallel
+      if (orgs.length > 1) {
+        const rest = await Promise.all(
+          orgs.slice(1).map(async (org) => {
+            const projects = await client
+              .listOrgProjects(org.id)
+              .catch((err) => {
+                log.warn("Failed to fetch projects for org", {
+                  orgId: org.id,
+                  err,
+                });
+                return [];
+              });
+            return [org.id, projects] as const;
+          }),
+        );
+        for (const [orgId, projects] of rest) {
+          map[orgId].projects = projects;
+        }
+      }
+
+      return map;
+    } catch (err) {
+      log.warn(
+        "Org-level project listing unavailable, falling back to project endpoint",
+        { err },
+      );
+    }
+  }
+
+  // Fallback: switch into each org and read team from /me.
+  // Both switchOrganization and getCurrentUser are user-level endpoints
+  // that work regardless of token scoping.
+  const currentOrgId = (user?.organization as { id?: string } | undefined)?.id;
+
+  for (const org of orgs) {
+    try {
+      let orgUser: Record<string, unknown>;
+      if (org.id === currentOrgId) {
+        orgUser = user;
+      } else {
+        await client.switchOrganization(org.id);
+        orgUser = await client.getCurrentUser();
+      }
+
+      const team = orgUser?.team as { id?: number; name?: string } | undefined;
+      if (team?.id && map[org.id]) {
+        map[org.id].projects = [
+          { id: team.id, name: team.name ?? `Project ${team.id}` },
+        ];
+      }
+    } catch (err) {
+      log.warn("Failed to fetch project via org switch", {
+        orgId: org.id,
+        err,
+      });
+    }
+  }
+
+  // Switch back to the original org
+  if (currentOrgId && orgs.length > 1) {
+    await client.switchOrganization(currentOrgId).catch((err) => {
+      log.warn("Failed to switch back to original org", { err });
+    });
+  }
+
+  return map;
 }
 
 export const useAuthStore = create<AuthState>()(

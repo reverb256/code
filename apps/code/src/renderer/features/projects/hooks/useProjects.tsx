@@ -36,7 +36,9 @@ export function groupProjectsByOrg(
 export function useProjects() {
   const orgProjectsMap = useAuthStore((s) => s.orgProjectsMap);
   const currentProjectId = useAuthStore((s) => s.projectId);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const selectProject = useAuthStore((s) => s.selectProject);
+  const logout = useAuthStore((s) => s.logout);
 
   const groupedProjects = useMemo(
     () => groupProjectsByOrg(orgProjectsMap),
@@ -51,6 +53,12 @@ export function useProjects() {
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
   useEffect(() => {
+    const hasOrgData = Object.keys(orgProjectsMap).length > 0;
+    if (isAuthenticated && hasOrgData && projects.length === 0) {
+      log.info("No projects available, logging out");
+      logout();
+      return;
+    }
     if (projects.length > 0 && !currentProject) {
       log.info("Auto-selecting first available project", {
         projectId: projects[0].id,
@@ -61,7 +69,15 @@ export function useProjects() {
       });
       selectProject(projects[0].id);
     }
-  }, [projects, currentProject, currentProjectId, selectProject]);
+  }, [
+    isAuthenticated,
+    projects,
+    currentProject,
+    currentProjectId,
+    selectProject,
+    logout,
+    orgProjectsMap,
+  ]);
 
   return {
     projects,
