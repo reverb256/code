@@ -3,8 +3,16 @@ import {
   GitCommitDialog,
   GitPrDialog,
   GitPushDialog,
+  StackCreateDialog,
+  StackModifyDialog,
+  StackSubmitDialog,
+  StackSyncDialog,
 } from "@features/git-interaction/components/GitInteractionDialogs";
 import { GitInteractionMenu } from "@features/git-interaction/components/GitInteractionMenu";
+import {
+  StackPopover,
+  StackVisualization,
+} from "@features/git-interaction/components/StackVisualization";
 import { useGitInteraction } from "@features/git-interaction/hooks/useGitInteraction";
 import { useWorkspace } from "@features/workspace/hooks/useWorkspace";
 import { selectIsFocusedOnWorktree, useFocusStore } from "@stores/focusStore";
@@ -25,7 +33,7 @@ export function GitInteractionHeader({ taskId }: GitInteractionHeaderProps) {
 
   return (
     <>
-      <div className="no-drag">
+      <div className="no-drag flex items-center gap-1.5">
         <GitInteractionMenu
           primaryAction={state.primaryAction}
           actions={state.actions}
@@ -33,6 +41,14 @@ export function GitInteractionHeader({ taskId }: GitInteractionHeaderProps) {
           onPrimary={actions.openAction}
           onSelect={actions.openAction}
         />
+        {state.isGraphiteRepo &&
+          state.graphiteStack?.currentStack &&
+          state.graphiteStack.currentStack.length > 0 && (
+            <StackPopover
+              trunk={state.graphiteStack.trunk}
+              entries={state.graphiteStack.currentStack}
+            />
+          )}
       </div>
 
       <GitCommitDialog
@@ -97,6 +113,58 @@ export function GitInteractionHeader({ taskId }: GitInteractionHeaderProps) {
         onConfirm={actions.runBranch}
         isSubmitting={modals.isSubmitting}
         error={modals.branchError}
+      />
+
+      <StackSubmitDialog
+        open={modals.stackSubmitOpen}
+        onOpenChange={(open) => {
+          if (!open) modals.actions.closeStackSubmit();
+        }}
+        branchName={state.currentBranch}
+        draft={modals.stackSubmitDraft}
+        onDraftChange={modals.actions.setStackSubmitDraft}
+        onConfirm={actions.runStackSubmit}
+        isSubmitting={modals.isSubmitting}
+        error={modals.stackSubmitError}
+        stackPreview={
+          state.graphiteStack?.currentStack ? (
+            <StackVisualization entries={state.graphiteStack.currentStack} />
+          ) : undefined
+        }
+      />
+
+      <StackSyncDialog
+        open={modals.stackSyncOpen}
+        onOpenChange={(open) => {
+          if (!open) modals.actions.closeStackSync();
+        }}
+        branchName={state.currentBranch}
+        onConfirm={actions.runStackSync}
+        isSubmitting={modals.isSubmitting}
+        error={modals.stackSyncError}
+      />
+
+      <StackModifyDialog
+        open={modals.stackModifyOpen}
+        onOpenChange={(open) => {
+          if (!open) modals.actions.closeStackModify();
+        }}
+        branchName={state.currentBranch}
+        onConfirm={actions.runStackModify}
+        isSubmitting={modals.isSubmitting}
+        error={modals.stackModifyError}
+      />
+
+      <StackCreateDialog
+        open={modals.stackCreateOpen}
+        onOpenChange={(open) => {
+          if (!open) modals.actions.closeStackCreate();
+        }}
+        message={modals.stackCreateMessage}
+        onMessageChange={modals.actions.setStackCreateMessage}
+        onConfirm={actions.runStackCreate}
+        isSubmitting={modals.isSubmitting}
+        error={modals.stackCreateError}
       />
     </>
   );

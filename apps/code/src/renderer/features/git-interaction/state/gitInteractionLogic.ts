@@ -23,6 +23,7 @@ interface GitState {
     headBranch: string | null;
     prUrl: string | null;
   } | null;
+  isGraphiteRepo?: boolean;
 }
 
 interface GitComputed {
@@ -182,6 +183,49 @@ export function computeGitInteractionState(input: GitState): GitComputed {
       prUrl: null,
       baseReason: repoReason,
       isDetachedHead: true,
+    };
+  }
+
+  // Graphite stack mode: context-aware actions
+  // Check before onDefaultBranch since Graphite uses `gt create` instead of git branches
+  if (input.isGraphiteRepo) {
+    const onTrunk = isOnDefaultBranch(input);
+    const createAction = makeAction("stack-create", "Stack Branch", repoReason);
+    const modifyAction = makeAction(
+      "stack-modify",
+      "Amend",
+      repoReason ?? (input.hasChanges ? null : "No changes to amend."),
+    );
+    const submitAction = makeAction("stack-submit", "Submit Stack", repoReason);
+    const syncAction = makeAction("stack-sync", "Sync", repoReason);
+
+    let actions: GitMenuAction[];
+    let primaryAction: GitMenuAction;
+
+    if (onTrunk) {
+      // On trunk: primary is creating a new stack branch, sync available
+      actions = [createAction, syncAction];
+      primaryAction = input.hasChanges ? createAction : syncAction;
+    } else if (input.hasChanges) {
+      // On a stack branch with changes: amend into current branch
+      actions = [modifyAction, createAction, submitAction, syncAction];
+      primaryAction = modifyAction;
+    } else {
+      // On a stack branch, clean: submit the stack
+      actions = [submitAction, createAction, syncAction];
+      primaryAction = submitAction;
+    }
+
+    return {
+      actions,
+      primaryAction,
+      pushDisabledReason: null,
+      prDisabledReason: null,
+      prBaseBranch: input.defaultBranch,
+      prHeadBranch: input.currentBranch,
+      prUrl: input.prStatus?.prUrl ?? null,
+      baseReason: repoReason,
+      isDetachedHead: false,
     };
   }
 

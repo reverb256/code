@@ -21,6 +21,7 @@ import { FoldersService } from "../services/folders/service";
 import { FsService } from "../services/fs/service";
 import { GitService } from "../services/git/service";
 import { GitHubIntegrationService } from "../services/github-integration/service";
+import { GraphiteService } from "../services/graphite/service";
 import { LlmGatewayService } from "../services/llm-gateway/service";
 import { McpCallbackService } from "../services/mcp-callback/service";
 import { NotificationService } from "../services/notification/service";
@@ -68,6 +69,7 @@ container
   .bind(MAIN_TOKENS.GitHubIntegrationService)
   .to(GitHubIntegrationService);
 container.bind(MAIN_TOKENS.GitService).to(GitService);
+container.bind(MAIN_TOKENS.GraphiteService).to(GraphiteService);
 container.bind(MAIN_TOKENS.McpCallbackService).to(McpCallbackService);
 container.bind(MAIN_TOKENS.NotificationService).to(NotificationService);
 container.bind(MAIN_TOKENS.OAuthService).to(OAuthService);

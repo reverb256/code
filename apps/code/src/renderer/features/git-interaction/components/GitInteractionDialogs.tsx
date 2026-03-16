@@ -1,5 +1,6 @@
 import { Tooltip } from "@components/ui/Tooltip";
 import {
+  ArrowsClockwise,
   CheckCircle,
   CloudArrowUp,
   Copy,
@@ -8,6 +9,7 @@ import {
   GitFork,
   GitPullRequest,
   Sparkle,
+  StackSimple,
 } from "@phosphor-icons/react";
 import { CheckIcon } from "@radix-ui/react-icons";
 import {
@@ -592,6 +594,195 @@ export function GitBranchDialog({
             {error}
           </Text>
         )}
+      </Flex>
+    </GitDialog>
+  );
+}
+
+// Graphite Stack Dialogs
+
+interface StackSubmitDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  branchName: string | null;
+  draft: boolean;
+  onDraftChange: (value: boolean) => void;
+  onConfirm: () => void;
+  isSubmitting: boolean;
+  error: string | null;
+  stackPreview?: React.ReactNode;
+}
+
+export function StackSubmitDialog({
+  open,
+  onOpenChange,
+  branchName,
+  draft,
+  onDraftChange,
+  onConfirm,
+  isSubmitting,
+  error,
+  stackPreview,
+}: StackSubmitDialogProps) {
+  return (
+    <GitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<StackSimple size={ICON_SIZE} />}
+      title="Submit Stack"
+      error={error}
+      buttonLabel="Submit"
+      isSubmitting={isSubmitting}
+      onSubmit={onConfirm}
+    >
+      <InfoRow label="Branch">
+        <BranchBadge branch={branchName} />
+      </InfoRow>
+      <Text size="1" color="gray">
+        Push all branches in the stack and create or update PRs.
+      </Text>
+      {stackPreview}
+      <SelectableOption
+        icon={<GitPullRequest size={ICON_SIZE} />}
+        label="Submit as draft"
+        selected={draft}
+        disabled={false}
+        disabledReason={null}
+        onSelect={() => onDraftChange(!draft)}
+      />
+    </GitDialog>
+  );
+}
+
+interface StackSyncDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  branchName: string | null;
+  onConfirm: () => void;
+  isSubmitting: boolean;
+  error: string | null;
+}
+
+export function StackSyncDialog({
+  open,
+  onOpenChange,
+  branchName,
+  onConfirm,
+  isSubmitting,
+  error,
+}: StackSyncDialogProps) {
+  return (
+    <GitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<ArrowsClockwise size={ICON_SIZE} />}
+      title="Sync"
+      error={error}
+      buttonLabel="Sync"
+      isSubmitting={isSubmitting}
+      onSubmit={onConfirm}
+    >
+      <InfoRow label="Branch">
+        <BranchBadge branch={branchName} />
+      </InfoRow>
+      <Text size="1" color="gray">
+        Pull latest trunk and rebase all stacks. This may trigger merge
+        conflicts that need to be resolved in your terminal.
+      </Text>
+    </GitDialog>
+  );
+}
+
+interface StackModifyDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  branchName: string | null;
+  onConfirm: () => void;
+  isSubmitting: boolean;
+  error: string | null;
+}
+
+export function StackModifyDialog({
+  open,
+  onOpenChange,
+  branchName,
+  onConfirm,
+  isSubmitting,
+  error,
+}: StackModifyDialogProps) {
+  return (
+    <GitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<GitCommit size={ICON_SIZE} />}
+      title="Amend Changes"
+      error={error}
+      buttonLabel="Amend"
+      isSubmitting={isSubmitting}
+      onSubmit={onConfirm}
+    >
+      <InfoRow label="Branch">
+        <BranchBadge branch={branchName} />
+      </InfoRow>
+      <Text size="1" color="gray">
+        Stage all changes and amend them into the current branch.
+      </Text>
+    </GitDialog>
+  );
+}
+
+interface StackCreateDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  message: string;
+  onMessageChange: (value: string) => void;
+  onConfirm: () => void;
+  isSubmitting: boolean;
+  error: string | null;
+}
+
+export function StackCreateDialog({
+  open,
+  onOpenChange,
+  message,
+  onMessageChange,
+  onConfirm,
+  isSubmitting,
+  error,
+}: StackCreateDialogProps) {
+  return (
+    <GitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={<GitFork size={ICON_SIZE} />}
+      title="New Stack Branch"
+      error={error}
+      buttonLabel="Create"
+      buttonDisabled={!message.trim()}
+      isSubmitting={isSubmitting}
+      onSubmit={onConfirm}
+    >
+      <Text size="1" color="gray">
+        Stage all changes and create a new branch on top of the current stack.
+      </Text>
+
+      <Flex direction="column" gap="1">
+        <Text size="1" color="gray">
+          Message
+        </Text>
+        <TextField.Root
+          value={message}
+          onChange={(e) => onMessageChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && message.trim() && !isSubmitting) {
+              e.preventDefault();
+              onConfirm();
+            }
+          }}
+          placeholder="describe this change"
+          size="1"
+          autoFocus
+        />
       </Flex>
     </GitDialog>
   );

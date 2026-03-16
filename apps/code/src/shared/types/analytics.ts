@@ -13,7 +13,11 @@ type GitActionType =
   | "commit-push"
   | "create-pr"
   | "view-pr"
-  | "update-pr";
+  | "update-pr"
+  | "stack-submit"
+  | "stack-sync"
+  | "stack-create"
+  | "stack-modify";
 export type FeedbackType = "good" | "bad" | "general";
 type FileOpenSource = "sidebar" | "agent-suggestion" | "search" | "diff";
 type FileChangeType = "added" | "modified" | "deleted";

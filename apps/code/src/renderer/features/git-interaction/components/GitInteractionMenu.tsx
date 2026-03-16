@@ -11,6 +11,7 @@ import {
   GitCommit,
   GitFork,
   GitPullRequest,
+  StackSimple,
 } from "@phosphor-icons/react";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import { Button, DropdownMenu, Flex, Spinner, Text } from "@radix-ui/themes";
@@ -84,6 +85,14 @@ function getActionIcon(actionId: GitMenuActionId) {
       return <Eye size={12} weight="bold" />;
     case "branch-here":
       return <GitFork size={12} weight="bold" />;
+    case "stack-submit":
+      return <StackSimple size={12} weight="bold" />;
+    case "stack-sync":
+      return <ArrowsClockwise size={12} weight="bold" />;
+    case "stack-create":
+      return <GitFork size={12} weight="bold" />;
+    case "stack-modify":
+      return <GitCommit size={12} weight="bold" />;
     default:
       return <CloudArrowUp size={12} weight="bold" />;
   }

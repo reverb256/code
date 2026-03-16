@@ -14,6 +14,7 @@ import { foldersRouter } from "./routers/folders";
 import { fsRouter } from "./routers/fs";
 import { gitRouter } from "./routers/git";
 import { githubIntegrationRouter } from "./routers/github-integration";
+import { graphiteRouter } from "./routers/graphite";
 import { llmGatewayRouter } from "./routers/llm-gateway";
 import { logsRouter } from "./routers/logs";
 import { mcpCallbackRouter } from "./routers/mcp-callback";
@@ -45,6 +46,7 @@ export const trpcRouter = router({
   folders: foldersRouter,
   fs: fsRouter,
   git: gitRouter,
+  graphite: graphiteRouter,
   githubIntegration: githubIntegrationRouter,
   llmGateway: llmGatewayRouter,
   mcpCallback: mcpCallbackRouter,
