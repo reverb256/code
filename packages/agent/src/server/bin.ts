@@ -79,6 +79,11 @@ program
     "--claudeCodeConfig <json>",
     "Claude Code config as JSON (systemPrompt, systemPromptAppend, plugins)",
   )
+  .option(
+    "--toolsPreset <preset>",
+    "Tools preset: default or research_background_agent",
+    "default",
+  )
   .action(async (options) => {
     const envResult = envSchema.safeParse(process.env);
 
@@ -118,6 +123,7 @@ program
       mcpServers,
       baseBranch: options.baseBranch,
       claudeCode,
+      toolsPreset: options.toolsPreset,
     });
 
     process.on("SIGINT", async () => {

@@ -12,6 +12,7 @@ import {
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
 import { selectRecentTurns } from "../adapters/claude/session/jsonl-hydration";
+import { RESEARCH_BACKGROUND_TOOLS } from "../adapters/claude/tools";
 import { PostHogAPIClient } from "../posthog-api";
 import {
   type ConversationTurn,
@@ -633,6 +634,14 @@ export class AgentServer {
       this.detectedPrUrl = prUrl;
     }
 
+    const claudeCodeOptions: Record<string, unknown> = {};
+    if (this.config.claudeCode?.plugins?.length) {
+      claudeCodeOptions.plugins = this.config.claudeCode.plugins;
+    }
+    if (this.config.toolsPreset === "research_background_agent") {
+      claudeCodeOptions.tools = RESEARCH_BACKGROUND_TOOLS;
+    }
+
     const sessionResponse = await clientConnection.newSession({
       cwd: this.config.repositoryPath ?? "/tmp/workspace",
       mcpServers: this.config.mcpServers ?? [],
@@ -640,11 +649,9 @@ export class AgentServer {
         sessionId: payload.run_id,
         taskRunId: payload.run_id,
         systemPrompt: this.buildSessionSystemPrompt(prUrl),
-        ...(this.config.claudeCode?.plugins?.length && {
+        ...(Object.keys(claudeCodeOptions).length > 0 && {
           claudeCode: {
-            options: {
-              plugins: this.config.claudeCode.plugins,
-            },
+            options: claudeCodeOptions,
           },
         }),
       },
@@ -1094,6 +1101,27 @@ Important:
           interactionOrigin,
           options: params.options,
         });
+
+        // Defense-in-depth: deny tools not in the restricted allowlist
+        if (this.config.toolsPreset === "research_background_agent") {
+          const meta = params.toolCall?._meta as
+            | Record<string, unknown>
+            | undefined;
+          const toolName =
+            (meta?.codeToolKind as string) ?? (meta?.toolName as string);
+          if (toolName && !RESEARCH_BACKGROUND_TOOLS.includes(toolName)) {
+            this.logger.warn(
+              "Denied restricted tool in research_background_agent mode",
+              { toolName },
+            );
+            return {
+              outcome: { outcome: "cancelled" as const },
+              _meta: {
+                message: `Tool "${toolName}" is not available in research mode. You can only use read, search, and planning tools.`,
+              },
+            };
+          }
+        }
 
         const allowOption = params.options.find(
           (o) => o.kind === "allow_once" || o.kind === "allow_always",

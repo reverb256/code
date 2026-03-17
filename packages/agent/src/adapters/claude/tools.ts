@@ -33,6 +33,14 @@ export const AGENT_TOOLS: Set<string> = new Set([
   "Skill",
 ]);
 
+export const RESEARCH_BACKGROUND_TOOLS: string[] = [
+  ...READ_TOOLS,
+  ...SEARCH_TOOLS,
+  ...AGENT_TOOLS,
+  "EnterPlanMode",
+  "ExitPlanMode",
+];
+
 const BASE_ALLOWED_TOOLS = [
   ...READ_TOOLS,
   ...SEARCH_TOOLS,

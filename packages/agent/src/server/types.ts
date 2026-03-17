@@ -1,6 +1,8 @@
 import type { AgentMode } from "../types";
 import type { RemoteMcpServer } from "./schemas";
 
+export type ToolsPreset = "default" | "research_background_agent";
+
 export interface ClaudeCodeConfig {
   systemPrompt?:
     | string
@@ -22,4 +24,5 @@ export interface AgentServerConfig {
   mcpServers?: RemoteMcpServer[];
   baseBranch?: string;
   claudeCode?: ClaudeCodeConfig;
+  toolsPreset?: ToolsPreset;
 }
