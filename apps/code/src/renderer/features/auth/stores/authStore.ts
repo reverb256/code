@@ -83,6 +83,7 @@ interface AuthState {
   hasCompletedOnboarding: boolean;
   selectedPlan: "free" | "pro" | null;
   selectedOrgId: string | null;
+  workContext: string | null;
 
   // Access gate methods
   checkCodeAccess: () => void;
@@ -104,6 +105,7 @@ interface AuthState {
   completeOnboarding: () => void;
   selectPlan: (plan: "free" | "pro") => void;
   selectOrg: (orgId: string) => void;
+  setWorkContext: (context: string) => void;
 
   // Other methods
   logout: () => void;
@@ -142,6 +144,7 @@ export const useAuthStore = create<AuthState>()(
         hasCompletedOnboarding: false,
         selectedPlan: null,
         selectedOrgId: null,
+        workContext: null,
 
         checkCodeAccess: () => {
           const state = get();
@@ -865,6 +868,10 @@ export const useAuthStore = create<AuthState>()(
           set({ selectedOrgId: orgId });
         },
 
+        setWorkContext: (context: string) => {
+          set({ workContext: context });
+        },
+
         logout: () => {
           track(ANALYTICS_EVENTS.USER_LOGGED_OUT);
           resetUser();
@@ -902,6 +909,7 @@ export const useAuthStore = create<AuthState>()(
             hasCodeAccess: null,
             selectedPlan: null,
             selectedOrgId: null,
+            workContext: null,
           });
         },
       }),
@@ -920,6 +928,7 @@ export const useAuthStore = create<AuthState>()(
           hasCompletedOnboarding: state.hasCompletedOnboarding,
           selectedPlan: state.selectedPlan,
           selectedOrgId: state.selectedOrgId,
+          workContext: state.workContext,
         }),
       },
     ),

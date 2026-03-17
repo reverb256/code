@@ -1,7 +1,7 @@
 import { useAuthStore } from "@features/auth/stores/authStore";
 import { ArrowLeft, ArrowRight, Check } from "@phosphor-icons/react";
 import { Badge, Button, Flex, Text } from "@radix-ui/themes";
-import phWordmark from "@renderer/assets/images/wordmark-alt.png";
+
 import { useEffect } from "react";
 
 interface BillingStepProps {
@@ -44,20 +44,10 @@ export function BillingStep({ onNext, onBack }: BillingStepProps) {
           width: "100%",
           maxWidth: 520,
           height: "100%",
-          paddingTop: 80,
+          paddingTop: 24,
           paddingBottom: 40,
         }}
       >
-        <img
-          src={phWordmark}
-          alt="PostHog"
-          style={{
-            height: "40px",
-            objectFit: "contain",
-            alignSelf: "flex-start",
-          }}
-        />
-
         <Flex
           direction="column"
           justify="center"
@@ -71,7 +61,7 @@ export function BillingStep({ onNext, onBack }: BillingStepProps) {
                 lineHeight: 1.3,
               }}
             >
-              Choose your plan
+              Pick the right fit
             </Text>
             <Flex direction="column" gap="3">
               {/* Free Plan */}

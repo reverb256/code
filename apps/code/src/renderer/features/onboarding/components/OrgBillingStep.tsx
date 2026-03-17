@@ -10,7 +10,7 @@ import {
   Skeleton,
   Text,
 } from "@radix-ui/themes";
-import phWordmark from "@renderer/assets/images/wordmark-alt.png";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { logger } from "@utils/logger";
 import { AnimatePresence, motion } from "framer-motion";
@@ -71,20 +71,11 @@ export function OrgBillingStep({ onNext, onBack }: OrgBillingStepProps) {
           width: "100%",
           maxWidth: 520,
           height: "100%",
-          paddingTop: 80,
+          paddingTop: 24,
           paddingBottom: 40,
         }}
       >
         <Flex direction="column" gap="3" mb="6">
-          <img
-            src={phWordmark}
-            alt="PostHog"
-            style={{
-              height: "40px",
-              objectFit: "contain",
-              alignSelf: "flex-start",
-            }}
-          />
           <Text
             size="6"
             style={{
@@ -92,7 +83,7 @@ export function OrgBillingStep({ onNext, onBack }: OrgBillingStepProps) {
               lineHeight: 1.3,
             }}
           >
-            Choose your organization
+            Who's footing the bill?
           </Text>
           <Text size="3" style={{ color: "var(--gray-12)", opacity: 0.7 }}>
             Select which organization should be billed for your PostHog Code
