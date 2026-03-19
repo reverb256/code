@@ -64,6 +64,7 @@ export function getCloudUrlFromRegion(region: CloudRegion): string {
   }
 }
 
+
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {
     case "us":
