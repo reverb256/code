@@ -32,12 +32,12 @@ import {
   Text,
   Tooltip,
 } from "@radix-ui/themes";
-import { getCloudUrlFromRegion } from "@shared/constants/oauth";
 import type {
   SignalReport,
   SignalReportArtefact,
   SuggestedReviewersArtefact,
 } from "@shared/types";
+import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import { useNavigationStore } from "@stores/navigationStore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";

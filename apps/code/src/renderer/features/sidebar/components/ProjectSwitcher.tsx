@@ -30,7 +30,7 @@ import {
   Text,
 } from "@radix-ui/themes";
 import { trpcClient } from "@renderer/trpc/client";
-import { getCloudUrlFromRegion } from "@shared/constants/oauth";
+import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import { isMac } from "@utils/platform";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./ProjectSwitcher.css";
