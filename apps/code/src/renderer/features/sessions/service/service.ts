@@ -30,7 +30,6 @@ import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import { getIsOnline } from "@renderer/stores/connectivityStore";
 import { trpcClient } from "@renderer/trpc/client";
 import { toast } from "@renderer/utils/toast";
-import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import {
   type CloudTaskUpdatePayload,
   type EffortLevel,
@@ -41,6 +40,7 @@ import {
 import { ANALYTICS_EVENTS } from "@shared/types/analytics";
 import type { AcpMessage, StoredLogEntry } from "@shared/types/session-events";
 import { isJsonRpcRequest } from "@shared/types/session-events";
+import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import { buildPermissionToolMetadata, track } from "@utils/analytics";
 import { logger } from "@utils/logger";
 import {
