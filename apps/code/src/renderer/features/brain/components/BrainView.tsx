@@ -1,6 +1,7 @@
+import { BrainGraph } from "@features/brain/components/BrainGraph";
 import { useSetHeaderContent } from "@hooks/useSetHeaderContent";
 import { Brain } from "@phosphor-icons/react";
-import { Flex, Text } from "@radix-ui/themes";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo } from "react";
 
 export function BrainView() {
@@ -24,17 +25,8 @@ export function BrainView() {
   useSetHeaderContent(headerContent);
 
   return (
-    <Flex
-      direction="column"
-      align="center"
-      justify="center"
-      height="100%"
-      gap="3"
-    >
-      <Text size="8">🧠</Text>
-      <Text size="2" className="font-mono text-[12px] text-gray-10">
-        I'm getting smarter...
-      </Text>
-    </Flex>
+    <Box height="100%" width="100%" position="relative">
+      <BrainGraph />
+    </Box>
   );
 }
