@@ -47,6 +47,11 @@ const AUTO_ALLOWED_TOOLS: Record<string, Set<string>> = {
   // dontAsk: new Set(BASE_ALLOWED_TOOLS),
 };
 
+/** Memory MCP tools are always safe — they only read/write a local SQLite DB */
+function isMemoryTool(toolName: string): boolean {
+  return toolName.startsWith("mcp__memory__");
+}
+
 export function isToolAllowedForMode(
   toolName: string,
   mode: CodeExecutionMode,
@@ -58,6 +63,9 @@ export function isToolAllowedForMode(
     return true;
   }
   if (isMcpToolReadOnly(toolName)) {
+    return true;
+  }
+  if (isMemoryTool(toolName)) {
     return true;
   }
   return false;
