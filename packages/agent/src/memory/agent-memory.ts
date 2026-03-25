@@ -27,8 +27,11 @@ import {
 
 const DEFAULT_DISTILL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_DISTILL_MIN_CHUNK = 2000; // chars
+const EAGER_DISTILL_THRESHOLD = 8000; // chars — trigger distill mid-conversation
 const DEFAULT_RECALL_TOKEN_BUDGET = 1500;
 const DEFAULT_EXTRACTION_MODEL = "claude-sonnet-4-20250514";
+const DECAY_RATE = 0.02;
+const DECAY_MIN_AGE_DAYS = 1;
 
 // ── Scoring ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +118,7 @@ export class AgentMemoryManager {
   // Periodic distillation timer
   private distillTimer: ReturnType<typeof setInterval> | null = null;
   private distilling = false;
+  private hasRunMaintenance = false;
 
   constructor(config: MemoryServiceConfig) {
     this.config = config;
@@ -156,6 +160,12 @@ export class AgentMemoryManager {
       tokenBudget,
       query: context.slice(0, 80),
     });
+
+    if (!this.hasRunMaintenance) {
+      const decayed = this.svc.decayImportance(DECAY_RATE, DECAY_MIN_AGE_DAYS);
+      this.hasRunMaintenance = true;
+      this.logger.info("Session maintenance: decayed memories", { decayed });
+    }
 
     const scored = this.searchScored(context, options);
     const selected = this.selectWithinBudget(scored, tokenBudget);
@@ -201,6 +211,18 @@ export class AgentMemoryManager {
       bufferSize: this.bufferCharCount,
       bufferEntries: this.buffer.length,
     });
+
+    if (this.bufferCharCount >= EAGER_DISTILL_THRESHOLD) {
+      this.logger.info(
+        "Buffer threshold reached, triggering eager distillation",
+        {
+          bufferSize: this.bufferCharCount,
+        },
+      );
+      this.distill().catch((err) => {
+        this.logger.error("Eager distillation error", { error: err });
+      });
+    }
   }
 
   /**

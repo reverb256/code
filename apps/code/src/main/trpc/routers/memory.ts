@@ -49,6 +49,10 @@ export const memoryRouter = router({
     .output(z.array(associationSchema))
     .query(({ input }) => getService().getAssociations(input.memoryId)),
 
+  maintenance: publicProcedure
+    .output(z.object({ decayed: z.number(), pruned: z.number() }))
+    .mutation(() => getService().runMaintenance()),
+
   seed: publicProcedure.output(z.number()).mutation(() => getService().seed()),
 
   reset: publicProcedure.mutation(() => {

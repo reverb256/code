@@ -8,6 +8,12 @@ import { logger } from "../../utils/logger";
 
 const log = logger.scope("memory");
 
+const MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const DECAY_RATE = 0.02;
+const DECAY_MIN_AGE_DAYS = 1;
+const PRUNE_THRESHOLD = 0.1;
+const PRUNE_MIN_AGE_DAYS = 30;
+
 function getDataDir(): string {
   return join(app.getPath("userData"), "memory");
 }
@@ -15,6 +21,7 @@ function getDataDir(): string {
 @injectable()
 export class MemoryService {
   private svc: AgentMemoryService | null = null;
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
 
   @postConstruct()
   initialize(): void {
@@ -22,6 +29,12 @@ export class MemoryService {
     log.info("Initializing memory service", { dataDir });
     this.svc = new AgentMemoryService({ dataDir });
     log.info("Memory service ready", { count: this.svc.count() });
+
+    this.runMaintenance();
+    this.maintenanceTimer = setInterval(
+      () => this.runMaintenance(),
+      MAINTENANCE_INTERVAL_MS,
+    );
   }
 
   get service(): AgentMemoryService {
@@ -81,8 +94,28 @@ export class MemoryService {
     return this.service.getAssociations(memoryId);
   }
 
+  runMaintenance(): { decayed: number; pruned: number } {
+    try {
+      const decayed = this.service.decayImportance(
+        DECAY_RATE,
+        DECAY_MIN_AGE_DAYS,
+      );
+      const pruned = this.service.prune(PRUNE_THRESHOLD, PRUNE_MIN_AGE_DAYS);
+      const total = this.service.count();
+      log.info("Memory maintenance complete", { decayed, pruned, total });
+      return { decayed, pruned };
+    } catch (error) {
+      log.error("Memory maintenance failed", { error });
+      return { decayed: 0, pruned: 0 };
+    }
+  }
+
   @preDestroy()
   close(): void {
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+      this.maintenanceTimer = null;
+    }
     if (this.svc) {
       log.info("Closing memory service");
       this.svc.close();

@@ -242,6 +242,23 @@ export function AdvancedSettings() {
     }),
   );
 
+  const maintenanceMutation = useMutation(
+    trpc.memory.maintenance.mutationOptions({
+      onSuccess: ({ decayed, pruned }) => {
+        toast.success(`Maintenance: decayed ${decayed}, pruned ${pruned}`);
+        queryClient.invalidateQueries({
+          queryKey: trpc.memory.count.queryKey(),
+        });
+        queryClient.invalidateQueries({
+          queryKey: trpc.memory.list.queryKey(),
+        });
+      },
+      onError: () => {
+        toast.error("Failed to run memory maintenance");
+      },
+    }),
+  );
+
   return (
     <Flex direction="column">
       <SettingRow
@@ -310,6 +327,19 @@ export function AdvancedSettings() {
           onClick={() => resetMutation.mutate()}
         >
           {resetMutation.isPending ? "Resetting..." : "Reset"}
+        </Button>
+      </SettingRow>
+      <SettingRow
+        label="Run maintenance"
+        description="Decay old memory importance and prune low-value memories"
+      >
+        <Button
+          variant="soft"
+          size="1"
+          disabled={maintenanceMutation.isPending}
+          onClick={() => maintenanceMutation.mutate()}
+        >
+          {maintenanceMutation.isPending ? "Running..." : "Maintain"}
         </Button>
       </SettingRow>
       <SettingRow

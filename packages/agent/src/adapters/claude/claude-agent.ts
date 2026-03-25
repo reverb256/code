@@ -375,6 +375,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             if (message.subtype === "compact_boundary") {
               lastAssistantTotalUsage = 0;
               promptReplayed = true;
+
+              // Flush memory buffer before context is compacted
+              if (this.options?.memoryService) {
+                this.logger.info("Compaction detected, flushing memory buffer");
+                this.options.memoryService.distill().catch((err: unknown) => {
+                  this.logger.error("Pre-compaction distillation failed", {
+                    error: err,
+                  });
+                });
+              }
             }
             if (message.subtype === "local_command_output") {
               promptReplayed = true;
