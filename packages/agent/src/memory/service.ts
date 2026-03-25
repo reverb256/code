@@ -96,6 +96,10 @@ export class AgentMemoryService {
     return this.repo.getAssociations(memoryId);
   }
 
+  getAssociationsBetween(memoryIds: string[]): Association[] {
+    return this.repo.getAssociationsBetween(memoryIds);
+  }
+
   getByType(memoryType: MemoryType, limit?: number): Memory[] {
     return this.repo.getByType(memoryType, limit);
   }
