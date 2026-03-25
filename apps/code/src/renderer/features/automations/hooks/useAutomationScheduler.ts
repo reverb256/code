@@ -56,7 +56,7 @@ export function useAutomationScheduler(): void {
             repoPath: automation.repoPath,
             repository: automation.repository ?? undefined,
             githubIntegrationId: automation.githubIntegrationId ?? undefined,
-            workspaceMode: "local",
+            workspaceMode: "cloud",
           });
 
           if (!result.success) {
@@ -129,7 +129,7 @@ export async function runAutomationNow(automationId: string): Promise<boolean> {
       repoPath: automation.repoPath,
       repository: automation.repository ?? undefined,
       githubIntegrationId: automation.githubIntegrationId ?? undefined,
-      workspaceMode: "local",
+      workspaceMode: "cloud",
     });
 
     if (!result.success) {
