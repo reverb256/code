@@ -2,6 +2,12 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { AgentMemoryService } from "@posthog/agent/memory";
 import { seedMemories } from "@posthog/agent/memory/seed";
+import type {
+  Association,
+  Memory,
+  MemorySearchResult,
+  MemoryType,
+} from "@posthog/agent/memory/types";
 import { app } from "electron";
 import { injectable, postConstruct, preDestroy } from "inversify";
 import { logger } from "../../utils/logger";
@@ -77,21 +83,43 @@ export class MemoryService {
     memoryType?: string;
     limit?: number;
     includeForgotten?: boolean;
-  }): import("@posthog/agent/memory/types").Memory[] {
+  }): Memory[] {
     const svc = this.service;
     if (options?.memoryType) {
       return svc.getByType(
-        options.memoryType as import("@posthog/agent/memory/types").MemoryType,
+        options.memoryType as MemoryType,
         options.limit ?? 100,
       );
     }
     return svc.getSorted("recent", { limit: options?.limit ?? 100 });
   }
 
-  getAssociations(
-    memoryId: string,
-  ): import("@posthog/agent/memory/types").Association[] {
+  search(query: string, limit?: number): MemorySearchResult[] {
+    return this.service.searchFts(query, limit);
+  }
+
+  getAssociations(memoryId: string): Association[] {
     return this.service.getAssociations(memoryId);
+  }
+
+  getGraph(options?: { limit?: number; memoryType?: string }): {
+    nodes: Memory[];
+    edges: Association[];
+  } {
+    const svc = this.service;
+    const limit = options?.limit ?? 200;
+
+    let nodes: Memory[];
+    if (options?.memoryType) {
+      nodes = svc.getByType(options.memoryType as MemoryType, limit);
+    } else {
+      nodes = svc.getSorted("importance", { limit });
+    }
+
+    const nodeIds = nodes.map((n) => n.id);
+    const edges = svc.getAssociationsBetween(nodeIds);
+
+    return { nodes, edges };
   }
 
   runMaintenance(): { decayed: number; pruned: number; consolidated: number } {

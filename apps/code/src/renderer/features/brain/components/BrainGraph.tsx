@@ -14,7 +14,7 @@ import Graph from "graphology";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sigma from "sigma";
-import { EdgeArrowProgram } from "sigma/rendering";
+import { drawDiscNodeLabel, EdgeArrowProgram } from "sigma/rendering";
 
 const log = logger.scope("brain-graph");
 
@@ -89,6 +89,9 @@ const EDGE_COLORS: Record<RelationEdgeType, string> = {
 };
 
 const FADED_NODE_COLOR = "#333333";
+const BRAIN_NODE_ID = "__brain_hub__";
+const BRAIN_LABEL = "Brain";
+const BRAIN_EDGE_COLOR = "rgba(139,92,246,0.15)";
 
 // -- Component --
 
@@ -100,6 +103,7 @@ export function BrainGraph() {
   const [nodeCount, setNodeCount] = useState(0);
   const [edgeCount, setEdgeCount] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
+  const [brainSelected, setBrainSelected] = useState(false);
   const [_hoveredNode, setHoveredNode] = useState<string | null>(null);
   const hoveredNodeRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -117,6 +121,60 @@ export function BrainGraph() {
   const { data: graphData, isLoading } = useQuery(
     trpc.memory.graph.queryOptions({ limit: 200 }),
   );
+
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    if (!searchQuery) {
+      setDebouncedSearch("");
+      return;
+    }
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const { data: ftsResults } = useQuery({
+    ...trpc.memory.search.queryOptions({ query: debouncedSearch, limit: 50 }),
+    enabled: debouncedSearch.length > 0,
+  });
+
+  const ftsMatchIds = useMemo(() => {
+    if (!ftsResults || ftsResults.length === 0) return null;
+    return new Set(ftsResults.map((r) => r.memory.id));
+  }, [ftsResults]);
+
+  const brainSummary = useMemo(() => {
+    if (!graphData) return null;
+    const typeCounts = new Map<string, number>();
+    let totalImportance = 0;
+    for (const node of graphData.nodes) {
+      typeCounts.set(
+        node.memoryType,
+        (typeCounts.get(node.memoryType) ?? 0) + 1,
+      );
+      totalImportance += node.importance;
+    }
+    return {
+      totalNodes: graphData.nodes.length,
+      totalEdges: graphData.edges.length,
+      avgImportance:
+        graphData.nodes.length > 0
+          ? totalImportance / graphData.nodes.length
+          : 0,
+      typeCounts: Array.from(typeCounts.entries()).sort(
+        (a, b) => b[1] - a[1],
+      ),
+    };
+  }, [graphData]);
+
+  const selectedNodeId = selectedNode?.node.id ?? null;
+
+  const { data: associations } = useQuery({
+    ...trpc.memory.associations.queryOptions({
+      memoryId: selectedNodeId ?? "",
+    }),
+    enabled: !!selectedNodeId,
+  });
 
   const cleanup = useCallback(() => {
     if (layoutRef.current) {
@@ -152,7 +210,7 @@ export function BrainGraph() {
     const graph = graphRef.current;
     if (!graph) return;
 
-    const hasSearch = searchQuery.length > 0;
+    const hasSearch = debouncedSearch.length > 0;
     const hasNodeFilter = activeNodeTypes.size > 0;
     const hasEdgeFilter = activeEdgeTypes.size > 0;
 
@@ -165,23 +223,16 @@ export function BrainGraph() {
 
     const filterSets: Set<string>[] = [];
 
-    if (hasSearch) {
-      const query = searchQuery.toLowerCase();
-      const directMatches = new Set<string>();
+    if (hasSearch && ftsMatchIds) {
       const searchVisible = new Set<string>();
 
-      graph.forEachNode((node, attrs) => {
-        const data = attrs.nodeData as MemoryNode;
-        if (data.content.toLowerCase().includes(query)) {
-          directMatches.add(node);
-          searchVisible.add(node);
+      for (const id of ftsMatchIds) {
+        if (graph.hasNode(id)) {
+          searchVisible.add(id);
+          graph.forEachNeighbor(id, (neighbor) => {
+            searchVisible.add(neighbor);
+          });
         }
-      });
-
-      for (const node of directMatches) {
-        graph.forEachNeighbor(node, (neighbor) => {
-          searchVisible.add(neighbor);
-        });
       }
 
       filterSets.push(searchVisible);
@@ -190,6 +241,7 @@ export function BrainGraph() {
     if (hasNodeFilter) {
       const typeVisible = new Set<string>();
       graph.forEachNode((node, attrs) => {
+        if (node === BRAIN_NODE_ID) return;
         const data = attrs.nodeData as MemoryNode;
         if (activeNodeTypes.has(data.memoryType as MemoryNodeType)) {
           typeVisible.add(node);
@@ -222,11 +274,15 @@ export function BrainGraph() {
       }
     }
 
+    visibleNodes.add(BRAIN_NODE_ID);
+
     const visibleEdges = new Set<string>();
     graph.forEachEdge((edge, attrs, source, target) => {
+      const isBrainEdge = source === BRAIN_NODE_ID || target === BRAIN_NODE_ID;
       const endpointsVisible =
         visibleNodes.has(source) && visibleNodes.has(target);
       const passesEdgeFilter =
+        isBrainEdge ||
         !hasEdgeFilter ||
         activeEdgeTypes.has(attrs.relationType as RelationEdgeType);
 
@@ -238,7 +294,7 @@ export function BrainGraph() {
     visibleNodesRef.current = visibleNodes;
     visibleEdgesRef.current = visibleEdges;
     sigmaRef.current?.refresh();
-  }, [searchQuery, activeNodeTypes, activeEdgeTypes]);
+  }, [debouncedSearch, ftsMatchIds, activeNodeTypes, activeEdgeTypes]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -286,8 +342,52 @@ export function BrainGraph() {
 
     addEdgesToGraph(graph, graphData.edges);
 
-    setNodeCount(graph.order);
-    setEdgeCount(graph.size);
+    const realEdgeCount = graph.size;
+
+    graph.addNode(BRAIN_NODE_ID, {
+      label: BRAIN_LABEL,
+      size: 16,
+      color: "#1a1030",
+      x: 50,
+      y: 50,
+      nodeData: null,
+    });
+
+    const visited = new Set<string>();
+    for (const node of graphData.nodes) {
+      if (visited.has(node.id)) continue;
+      const component: string[] = [];
+      const queue = [node.id];
+      visited.add(node.id);
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        component.push(current);
+        graph.forEachNeighbor(current, (neighbor) => {
+          if (neighbor !== BRAIN_NODE_ID && !visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        });
+      }
+      let bestId = component[0];
+      let bestImportance = -1;
+      for (const id of component) {
+        const nd = graph.getNodeAttribute(id, "nodeData") as MemoryNode;
+        if (nd.importance > bestImportance) {
+          bestImportance = nd.importance;
+          bestId = id;
+        }
+      }
+      graph.addEdgeWithKey(`brain-${bestId}`, BRAIN_NODE_ID, bestId, {
+        color: BRAIN_EDGE_COLOR,
+        size: 0.5,
+        type: "arrow",
+        relationType: "brain_link",
+      });
+    }
+
+    setNodeCount(graphData.nodes.length);
+    setEdgeCount(realEdgeCount);
 
     const sigma = new Sigma(graph, containerRef.current, {
       allowInvalidContainer: true,
@@ -301,8 +401,86 @@ export function BrainGraph() {
       edgeProgramClasses: {
         arrow: EdgeArrowProgram,
       },
+      defaultDrawNodeLabel: (context, data, settings) => {
+        if (!data.label) return;
+        if (data.label === BRAIN_LABEL) {
+          context.save();
+          const r = data.size;
+          const cx = data.x;
+          const cy = data.y;
+
+          const glow = context.createRadialGradient(
+            cx,
+            cy,
+            r * 0.5,
+            cx,
+            cy,
+            r * 2.6,
+          );
+          glow.addColorStop(0, "rgba(139,92,246,0.2)");
+          glow.addColorStop(0.5, "rgba(139,92,246,0.06)");
+          glow.addColorStop(1, "rgba(139,92,246,0)");
+          context.fillStyle = glow;
+          context.beginPath();
+          context.arc(cx, cy, r * 2.6, 0, Math.PI * 2);
+          context.fill();
+
+          context.strokeStyle = "rgba(139,92,246,0.4)";
+          context.lineWidth = 1.2;
+          context.beginPath();
+          context.arc(cx, cy, r * 1.15, 0, Math.PI * 2);
+          context.stroke();
+
+          const s = r * 0.55;
+          const layers: [number, number][][] = [
+            [
+              [cx - s * 0.9, cy - s * 0.45],
+              [cx - s * 0.9, cy + s * 0.45],
+            ],
+            [
+              [cx, cy - s * 0.7],
+              [cx, cy],
+              [cx, cy + s * 0.7],
+            ],
+            [
+              [cx + s * 0.9, cy - s * 0.45],
+              [cx + s * 0.9, cy + s * 0.45],
+            ],
+          ];
+
+          context.strokeStyle = "rgba(139,92,246,0.5)";
+          context.lineWidth = 0.8;
+          for (let l = 0; l < layers.length - 1; l++) {
+            for (const from of layers[l]) {
+              for (const to of layers[l + 1]) {
+                context.beginPath();
+                context.moveTo(from[0], from[1]);
+                context.lineTo(to[0], to[1]);
+                context.stroke();
+              }
+            }
+          }
+
+          context.fillStyle = "rgba(167,139,250,0.95)";
+          for (const layer of layers) {
+            for (const [nx, ny] of layer) {
+              context.beginPath();
+              context.arc(nx, ny, 1.8, 0, Math.PI * 2);
+              context.fill();
+            }
+          }
+
+          context.restore();
+          return;
+        }
+        drawDiscNodeLabel(context, data, settings);
+      },
       nodeReducer: (node, data) => {
         const res = { ...data };
+        if (node === BRAIN_NODE_ID) {
+          res.forceLabel = true;
+          return res;
+        }
         const visible = visibleNodesRef.current;
         if (visible && !visible.has(node)) {
           res.color = FADED_NODE_COLOR;
@@ -369,6 +547,12 @@ export function BrainGraph() {
     if (!sigma) return;
 
     function handleClickNode({ node }: { node: string }) {
+      if (node === BRAIN_NODE_ID) {
+        setSelectedNode(null);
+        setBrainSelected(true);
+        return;
+      }
+      setBrainSelected(false);
       const graph = graphRef.current;
       const s = sigmaRef.current;
       if (!graph || !s) return;
@@ -386,6 +570,7 @@ export function BrainGraph() {
     }
 
     function handleEnterNode({ node }: { node: string }) {
+      if (node === BRAIN_NODE_ID) return;
       hoveredNodeRef.current = node;
       setHoveredNode(node);
       if (sigmaRef.current) {
@@ -403,6 +588,7 @@ export function BrainGraph() {
 
     function handleClickStage() {
       setSelectedNode(null);
+      setBrainSelected(false);
     }
 
     sigma.on("clickNode", handleClickNode);
@@ -432,7 +618,14 @@ export function BrainGraph() {
     : "#666666";
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
       {/* Search + Stats */}
       <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
         <div className="flex items-center gap-2 rounded-md bg-[--color-panel-solid] px-2 py-1.5">
@@ -581,39 +774,126 @@ export function BrainGraph() {
       <AnimatePresence>
         {selectedNode && (
           <motion.div
+            key={selectedNode.node.id}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-3 bottom-3 z-20 w-72 rounded-lg border border-[--gray-a4] bg-[--color-panel-solid] p-4 shadow-xl"
+            className="absolute right-3 bottom-3 z-20 w-80 rounded-lg border border-[--gray-a4] bg-[--color-panel-solid] shadow-xl"
           >
-            <div className="mb-2 flex items-center justify-between">
-              <span
-                className="rounded px-1.5 py-0.5 font-medium text-xs"
-                style={{
-                  backgroundColor: `${selectedColor}22`,
-                  color: selectedColor,
-                }}
-              >
-                {selectedNode.node.memoryType}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedNode(null)}
-                className="flex h-6 w-6 items-center justify-center rounded text-[--gray-a9] transition-colors hover:text-[--gray-12]"
-              >
-                <X size={12} />
-              </button>
+            <div className="p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span
+                  className="rounded px-1.5 py-0.5 font-medium text-xs"
+                  style={{
+                    backgroundColor: `${selectedColor}22`,
+                    color: selectedColor,
+                  }}
+                >
+                  {selectedNode.node.memoryType}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedNode(null)}
+                  className="flex h-6 w-6 items-center justify-center rounded text-[--gray-a9] transition-colors hover:text-[--gray-12]"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-[--gray-a11] text-sm leading-relaxed">
+                {selectedNode.node.content}
+              </p>
+              <div className="flex flex-col gap-1 text-xs">
+                {associations && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[--gray-a9]">Associations</span>
+                    <span className="font-medium text-white">
+                      {associations.length}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-[--gray-a9]">Importance</span>
+                  <span className="font-medium text-white">
+                    {selectedNode.node.importance.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[--gray-a9]">Created</span>
+                  <span className="font-medium text-white">
+                    {new Date(
+                      selectedNode.node.createdAt,
+                    ).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
             </div>
-            <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-[--gray-a11] text-sm leading-relaxed">
-              {selectedNode.node.content}
-            </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[--gray-a9] text-xs">
-              <span>Importance: {selectedNode.node.importance.toFixed(2)}</span>
-              <span>
-                Created:{" "}
-                {new Date(selectedNode.node.createdAt).toLocaleDateString()}
-              </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {brainSelected && brainSummary && (
+          <motion.div
+            key="brain-summary"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-3 bottom-3 z-20 w-72 rounded-lg border border-[--gray-a4] bg-[--color-panel-solid] shadow-xl"
+          >
+            <div className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="font-medium text-[--gray-12] text-sm">
+                  Memory Overview
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBrainSelected(false)}
+                  className="flex h-6 w-6 items-center justify-center rounded text-[--gray-a9] transition-colors hover:text-[--gray-12]"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              <div className="mb-3 flex flex-col gap-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[--gray-a9]">Memories</span>
+                  <span className="font-medium text-white">
+                    {brainSummary.totalNodes}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[--gray-a9]">Associations</span>
+                  <span className="font-medium text-white">
+                    {brainSummary.totalEdges}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[--gray-a9]">Avg Importance</span>
+                  <span className="font-medium text-white">
+                    {brainSummary.avgImportance.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                {brainSummary.typeCounts.map(([type, count]: [string, number]) => (
+                  <div key={type} className="flex items-center gap-2">
+                    <span
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor:
+                          NODE_COLORS[type as MemoryNodeType] ?? "#666666",
+                      }}
+                    />
+                    <span className="flex-1 text-[--gray-a9] text-xs">
+                      {type}
+                    </span>
+                    <span className="font-medium text-white text-xs">
+                      {count}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </motion.div>
         )}
