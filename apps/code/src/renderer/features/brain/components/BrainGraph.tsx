@@ -277,7 +277,12 @@ export function BrainGraph() {
     }
 
     let visibleNodes: Set<string>;
-    if (filterSets.length === 1) {
+    if (filterSets.length === 0) {
+      visibleNodesRef.current = null;
+      visibleEdgesRef.current = null;
+      sigmaRef.current?.refresh();
+      return;
+    } else if (filterSets.length === 1) {
       visibleNodes = filterSets[0];
     } else {
       const smallest = filterSets.reduce((a, b) => (a.size < b.size ? a : b));
