@@ -62,6 +62,23 @@ export const memoryRouter = router({
     )
     .query(({ input }) => getService().search(input.query, input.limit)),
 
+  graph: publicProcedure
+    .input(
+      z
+        .object({
+          limit: z.number().min(1).max(500).optional(),
+          memoryType: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(
+      z.object({
+        nodes: z.array(memorySchema),
+        edges: z.array(associationSchema),
+      }),
+    )
+    .query(({ input }) => getService().getGraph(input ?? undefined)),
+
   associations: publicProcedure
     .input(z.object({ memoryId: z.string() }))
     .output(z.array(associationSchema))

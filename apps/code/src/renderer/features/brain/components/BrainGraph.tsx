@@ -161,9 +161,7 @@ export function BrainGraph() {
         graphData.nodes.length > 0
           ? totalImportance / graphData.nodes.length
           : 0,
-      typeCounts: Array.from(typeCounts.entries()).sort(
-        (a, b) => b[1] - a[1],
-      ),
+      typeCounts: Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [graphData]);
 
@@ -821,9 +819,7 @@ export function BrainGraph() {
                 <div className="flex items-center justify-between">
                   <span className="text-[--gray-a9]">Created</span>
                   <span className="font-medium text-white">
-                    {new Date(
-                      selectedNode.node.createdAt,
-                    ).toLocaleDateString()}
+                    {new Date(selectedNode.node.createdAt).toLocaleDateString()}
                   </span>
                 </div>
               </div>
@@ -876,23 +872,25 @@ export function BrainGraph() {
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                {brainSummary.typeCounts.map(([type, count]: [string, number]) => (
-                  <div key={type} className="flex items-center gap-2">
-                    <span
-                      className="inline-block h-2 w-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor:
-                          NODE_COLORS[type as MemoryNodeType] ?? "#666666",
-                      }}
-                    />
-                    <span className="flex-1 text-[--gray-a9] text-xs">
-                      {type}
-                    </span>
-                    <span className="font-medium text-white text-xs">
-                      {count}
-                    </span>
-                  </div>
-                ))}
+                {brainSummary.typeCounts.map(
+                  ([type, count]: [string, number]) => (
+                    <div key={type} className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor:
+                            NODE_COLORS[type as MemoryNodeType] ?? "#666666",
+                        }}
+                      />
+                      <span className="flex-1 text-[--gray-a9] text-xs">
+                        {type}
+                      </span>
+                      <span className="font-medium text-white text-xs">
+                        {count}
+                      </span>
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           </motion.div>
