@@ -77,28 +77,22 @@ export const suspensions = sqliteTable("suspensions", {
   updatedAt: updatedAt(),
 });
 
-export const AUTOMATION_SCHEDULES = [
-  "every_15_minutes",
-  "every_hour",
-  "every_4_hours",
-  "daily_9am",
-  "daily_12pm",
-  "daily_6pm",
-  "weekday_mornings",
-  "weekly_monday_9am",
-] as const;
-
 export const automations = sqliteTable("automations", {
   id: id(),
   name: text().notNull(),
   prompt: text().notNull(),
-  schedule: text({
-    enum: AUTOMATION_SCHEDULES,
-  }).notNull(),
+  repoPath: text().notNull(),
+  repository: text(),
+  githubIntegrationId: integer(),
+  scheduleTime: text().notNull(),
+  timezone: text().notNull(),
   enabled: integer({ mode: "boolean" }).notNull().default(true),
+  templateId: text(),
   lastRunAt: text(),
-  lastRunStatus: text({ enum: ["success", "error", "running"] }),
-  lastRunError: text(),
+  lastRunStatus: text({ enum: ["success", "failed", "skipped", "running"] }),
+  lastTaskId: text(),
+  lastError: text(),
+  nextRunAt: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -110,7 +104,9 @@ export const automationRuns = sqliteTable(
     automationId: text()
       .notNull()
       .references(() => automations.id, { onDelete: "cascade" }),
-    status: text({ enum: ["running", "success", "error"] }).notNull(),
+    status: text({
+      enum: ["running", "success", "failed", "skipped"],
+    }).notNull(),
     output: text(),
     error: text(),
     startedAt: text().notNull(),

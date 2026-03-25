@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { AUTOMATION_SCHEDULES } from "../../db/schema";
 import { container } from "../../di/container";
 import { MAIN_TOKENS } from "../../di/tokens";
 import {
@@ -10,8 +9,6 @@ import { publicProcedure, router } from "../trpc";
 
 const getService = () =>
   container.get<AutomationService>(MAIN_TOKENS.AutomationService);
-
-const automationScheduleSchema = z.enum(AUTOMATION_SCHEDULES);
 
 export const automationsRouter = router({
   list: publicProcedure.query(() => {
@@ -29,7 +26,12 @@ export const automationsRouter = router({
       z.object({
         name: z.string().min(1).max(200),
         prompt: z.string().min(1).max(10000),
-        schedule: automationScheduleSchema,
+        repoPath: z.string(),
+        repository: z.string().nullable().optional(),
+        githubIntegrationId: z.number().nullable().optional(),
+        scheduleTime: z.string(),
+        timezone: z.string(),
+        templateId: z.string().nullable().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -42,7 +44,12 @@ export const automationsRouter = router({
         id: z.string(),
         name: z.string().min(1).max(200).optional(),
         prompt: z.string().min(1).max(10000).optional(),
-        schedule: automationScheduleSchema.optional(),
+        repoPath: z.string().optional(),
+        repository: z.string().nullable().optional(),
+        githubIntegrationId: z.number().nullable().optional(),
+        scheduleTime: z.string().optional(),
+        timezone: z.string().optional(),
+        templateId: z.string().nullable().optional(),
         enabled: z.boolean().optional(),
       }),
     )

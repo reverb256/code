@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2290a5fa-d3b9-4c7e-849b-b0a9eba3074e",
+  "id": "b2235e08-596a-4baa-b107-d676f1882b17",
   "prevId": "f5d77788-5c4e-4bfa-a114-096b8d377332",
   "tables": {
     "archives": {
@@ -200,8 +200,36 @@
           "notNull": true,
           "autoincrement": false
         },
-        "schedule": {
-          "name": "schedule",
+        "repo_path": {
+          "name": "repo_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "repository": {
+          "name": "repository",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "github_integration_id": {
+          "name": "github_integration_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "schedule_time": {
+          "name": "schedule_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timezone": {
+          "name": "timezone",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -214,6 +242,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": true
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "last_run_at": {
           "name": "last_run_at",
@@ -229,8 +264,22 @@
           "notNull": false,
           "autoincrement": false
         },
-        "last_run_error": {
-          "name": "last_run_error",
+        "last_task_id": {
+          "name": "last_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "next_run_at": {
+          "name": "next_run_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

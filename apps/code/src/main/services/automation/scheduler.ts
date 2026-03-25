@@ -1,102 +1,112 @@
-import type { AutomationSchedule } from "@shared/types/automations";
-
 /**
- * Calculate the next run time for a given schedule from a reference point.
- * Returns a Date representing when the automation should next fire.
+ * Schedule utilities for automations.
+ *
+ * The model is simple: each automation has a `scheduleTime` (HH:MM)
+ * and a `timezone`. It runs daily at that time.
  */
-export function getNextRunTime(
-  schedule: AutomationSchedule,
-  from: Date = new Date(),
-): Date {
-  const next = new Date(from);
 
-  switch (schedule) {
-    case "every_15_minutes": {
-      next.setMinutes(next.getMinutes() + 15);
-      next.setSeconds(0, 0);
-      return next;
-    }
-    case "every_hour": {
-      next.setHours(next.getHours() + 1);
-      next.setMinutes(0, 0, 0);
-      return next;
-    }
-    case "every_4_hours": {
-      next.setHours(next.getHours() + 4);
-      next.setMinutes(0, 0, 0);
-      return next;
-    }
-    case "daily_9am": {
-      return getNextTimeOfDay(next, 9, 0);
-    }
-    case "daily_12pm": {
-      return getNextTimeOfDay(next, 12, 0);
-    }
-    case "daily_6pm": {
-      return getNextTimeOfDay(next, 18, 0);
-    }
-    case "weekday_mornings": {
-      return getNextWeekdayAt(next, 9, 0);
-    }
-    case "weekly_monday_9am": {
-      return getNextDayOfWeekAt(next, 1, 9, 0);
-    }
-    default: {
-      // Fallback: 1 hour from now
-      next.setHours(next.getHours() + 1);
-      return next;
-    }
-  }
+function getZonedParts(
+  date: Date,
+  timezone: string,
+): { year: number; month: number; day: number; hour: number; minute: number } {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+  };
 }
 
-function getNextTimeOfDay(from: Date, hour: number, minute: number): Date {
-  const next = new Date(from);
-  next.setSeconds(0, 0);
-  // If past today's time, schedule for tomorrow
-  if (
-    next.getHours() > hour ||
-    (next.getHours() === hour && next.getMinutes() >= minute)
-  ) {
-    next.setDate(next.getDate() + 1);
-  }
-  next.setHours(hour, minute, 0, 0);
-  return next;
-}
-
-function getNextWeekdayAt(from: Date, hour: number, minute: number): Date {
-  const next = getNextTimeOfDay(from, hour, minute);
-  // Skip weekends
-  while (next.getDay() === 0 || next.getDay() === 6) {
-    next.setDate(next.getDate() + 1);
-  }
-  return next;
-}
-
-function getNextDayOfWeekAt(
-  from: Date,
-  dayOfWeek: number,
+function zonedToUtc(
+  year: number,
+  month: number,
+  day: number,
   hour: number,
   minute: number,
+  timezone: string,
 ): Date {
-  const next = new Date(from);
-  next.setHours(hour, minute, 0, 0);
-  // Find next occurrence of the target day
-  const currentDay = next.getDay();
-  let daysUntil = dayOfWeek - currentDay;
-  if (daysUntil < 0) daysUntil += 7;
-  if (daysUntil === 0 && from >= next) daysUntil = 7;
-  next.setDate(next.getDate() + daysUntil);
-  return next;
+  let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const actual = getZonedParts(guess, timezone);
+    const actualMs = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+    );
+    const intendedMs = Date.UTC(year, month - 1, day, hour, minute);
+    const diff = Math.round((actualMs - intendedMs) / 60_000);
+    if (diff === 0) return guess;
+    guess = new Date(guess.getTime() - diff * 60_000);
+  }
+  return guess;
 }
 
 /**
- * Get the delay in ms until the next run time.
+ * Compute the next run time for a daily automation.
+ * If today's run time hasn't passed, returns today's time.
+ * Otherwise returns tomorrow's time.
+ */
+export function computeNextRunAt(
+  scheduleTime: string,
+  timezone: string,
+  from: Date = new Date(),
+): Date {
+  const [hourStr, minuteStr] = scheduleTime.split(":");
+  const hour = Number(hourStr ?? 0);
+  const minute = Number(minuteStr ?? 0);
+
+  const today = getZonedParts(from, timezone);
+  const todayTarget = zonedToUtc(
+    today.year,
+    today.month,
+    today.day,
+    hour,
+    minute,
+    timezone,
+  );
+
+  if (todayTarget.getTime() > from.getTime()) {
+    return todayTarget;
+  }
+
+  // Tomorrow
+  const tomorrow = new Date(
+    Date.UTC(today.year, today.month - 1, today.day + 1),
+  );
+  return zonedToUtc(
+    tomorrow.getUTCFullYear(),
+    tomorrow.getUTCMonth() + 1,
+    tomorrow.getUTCDate(),
+    hour,
+    minute,
+    timezone,
+  );
+}
+
+/**
+ * Get the delay in ms until the next run.
  * Returns at least 1000ms to prevent tight loops.
  */
 export function getDelayMs(
-  schedule: AutomationSchedule,
+  scheduleTime: string,
+  timezone: string,
   from: Date = new Date(),
 ): number {
-  const nextRun = getNextRunTime(schedule, from);
-  return Math.max(1000, nextRun.getTime() - from.getTime());
+  const next = computeNextRunAt(scheduleTime, timezone, from);
+  return Math.max(1000, next.getTime() - from.getTime());
 }

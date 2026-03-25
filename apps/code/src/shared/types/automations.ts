@@ -1,38 +1,55 @@
-import type { AUTOMATION_SCHEDULES } from "../../main/db/schema";
+import { z } from "zod";
 
-export type AutomationSchedule = (typeof AUTOMATION_SCHEDULES)[number];
+export const automationRunStatusSchema = z.enum([
+  "success",
+  "failed",
+  "skipped",
+  "running",
+]);
 
-export interface AutomationInfo {
-  id: string;
-  name: string;
-  prompt: string;
-  schedule: AutomationSchedule;
-  enabled: boolean;
-  lastRunAt: string | null;
-  lastRunStatus: "success" | "error" | "running" | null;
-  lastRunError: string | null;
-  nextRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export type AutomationRunStatus = z.infer<typeof automationRunStatusSchema>;
 
-export interface AutomationRunInfo {
-  id: string;
-  automationId: string;
-  status: "running" | "success" | "error";
-  output: string | null;
-  error: string | null;
-  startedAt: string;
-  completedAt: string | null;
-}
+export const automationTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  prompt: z.string(),
+  category: z.string(),
+  tags: z.array(z.string()).default([]),
+});
 
-export const SCHEDULE_LABELS: Record<AutomationSchedule, string> = {
-  every_15_minutes: "Every 15 minutes",
-  every_hour: "Every hour",
-  every_4_hours: "Every 4 hours",
-  daily_9am: "Daily at 9:00 AM",
-  daily_12pm: "Daily at 12:00 PM",
-  daily_6pm: "Daily at 6:00 PM",
-  weekday_mornings: "Weekday mornings at 9:00 AM",
-  weekly_monday_9am: "Weekly on Monday at 9:00 AM",
-};
+export type AutomationTemplate = z.infer<typeof automationTemplateSchema>;
+
+export const automationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prompt: z.string(),
+  repoPath: z.string(),
+  repository: z.string().nullable().optional(),
+  githubIntegrationId: z.number().nullable().optional(),
+  scheduleTime: z.string(),
+  timezone: z.string(),
+  enabled: z.boolean(),
+  templateId: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  nextRunAt: z.string().nullable().optional(),
+  lastRunAt: z.string().nullable().optional(),
+  lastRunStatus: automationRunStatusSchema.nullable().optional(),
+  lastTaskId: z.string().nullable().optional(),
+  lastError: z.string().nullable().optional(),
+});
+
+export type Automation = z.infer<typeof automationSchema>;
+
+export const automationRunInfoSchema = z.object({
+  id: z.string(),
+  automationId: z.string(),
+  status: automationRunStatusSchema,
+  output: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  startedAt: z.string(),
+  completedAt: z.string().nullable().optional(),
+});
+
+export type AutomationRunInfo = z.infer<typeof automationRunInfoSchema>;

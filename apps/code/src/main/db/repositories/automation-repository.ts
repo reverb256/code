@@ -1,30 +1,41 @@
+import type {
+  AutomationRunStatus,
+  Automation as AutomationType,
+} from "@shared/types/automations";
 import { desc, eq } from "drizzle-orm";
 import { inject, injectable } from "inversify";
 import { MAIN_TOKENS } from "../../di/tokens";
 import { automationRuns, automations } from "../schema";
 import type { DatabaseService } from "../service";
 
-export type Automation = typeof automations.$inferSelect;
-export type NewAutomation = typeof automations.$inferInsert;
-export type AutomationRun = typeof automationRuns.$inferSelect;
-export type NewAutomationRun = typeof automationRuns.$inferInsert;
+export type AutomationRow = typeof automations.$inferSelect;
+export type NewAutomationRow = typeof automations.$inferInsert;
+export type AutomationRunRow = typeof automationRuns.$inferSelect;
+export type NewAutomationRunRow = typeof automationRuns.$inferInsert;
 
 export interface CreateAutomationData {
   name: string;
   prompt: string;
-  schedule: Automation["schedule"];
+  repoPath: string;
+  repository?: string | null;
+  githubIntegrationId?: number | null;
+  scheduleTime: string;
+  timezone: string;
+  templateId?: string | null;
   enabled?: boolean;
 }
 
 export interface UpdateAutomationData {
   name?: string;
   prompt?: string;
-  schedule?: Automation["schedule"];
+  repoPath?: string;
+  repository?: string | null;
+  githubIntegrationId?: number | null;
+  scheduleTime?: string;
+  timezone?: string;
+  templateId?: string | null;
   enabled?: boolean;
-}
-
-export interface CreateRunData {
-  automationId: string;
+  nextRunAt?: string | null;
 }
 
 const byId = (id: string) => eq(automations.id, id);
@@ -43,11 +54,11 @@ export class AutomationRepository {
     return this.databaseService.db;
   }
 
-  findById(id: string): Automation | null {
+  findById(id: string): AutomationRow | null {
     return this.db.select().from(automations).where(byId(id)).get() ?? null;
   }
 
-  findAll(): Automation[] {
+  findAll(): AutomationRow[] {
     return this.db
       .select()
       .from(automations)
@@ -55,7 +66,7 @@ export class AutomationRepository {
       .all();
   }
 
-  findEnabled(): Automation[] {
+  findEnabled(): AutomationRow[] {
     return this.db
       .select()
       .from(automations)
@@ -63,14 +74,19 @@ export class AutomationRepository {
       .all();
   }
 
-  create(data: CreateAutomationData): Automation {
+  create(data: CreateAutomationData): AutomationRow {
     const timestamp = now();
     const id = crypto.randomUUID();
-    const row: NewAutomation = {
+    const row: NewAutomationRow = {
       id,
       name: data.name,
       prompt: data.prompt,
-      schedule: data.schedule,
+      repoPath: data.repoPath,
+      repository: data.repository ?? null,
+      githubIntegrationId: data.githubIntegrationId ?? null,
+      scheduleTime: data.scheduleTime,
+      timezone: data.timezone,
+      templateId: data.templateId ?? null,
       enabled: data.enabled ?? true,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -83,14 +99,22 @@ export class AutomationRepository {
     return created;
   }
 
-  update(id: string, data: UpdateAutomationData): Automation {
-    const updates: Partial<NewAutomation> = {
+  update(id: string, data: UpdateAutomationData): AutomationRow {
+    const updates: Partial<NewAutomationRow> = {
       updatedAt: now(),
     };
     if (data.name !== undefined) updates.name = data.name;
     if (data.prompt !== undefined) updates.prompt = data.prompt;
-    if (data.schedule !== undefined) updates.schedule = data.schedule;
+    if (data.repoPath !== undefined) updates.repoPath = data.repoPath;
+    if (data.repository !== undefined) updates.repository = data.repository;
+    if (data.githubIntegrationId !== undefined)
+      updates.githubIntegrationId = data.githubIntegrationId;
+    if (data.scheduleTime !== undefined)
+      updates.scheduleTime = data.scheduleTime;
+    if (data.timezone !== undefined) updates.timezone = data.timezone;
+    if (data.templateId !== undefined) updates.templateId = data.templateId;
     if (data.enabled !== undefined) updates.enabled = data.enabled;
+    if (data.nextRunAt !== undefined) updates.nextRunAt = data.nextRunAt;
 
     this.db.update(automations).set(updates).where(byId(id)).run();
     const updated = this.findById(id);
@@ -102,15 +126,17 @@ export class AutomationRepository {
 
   updateLastRun(
     id: string,
-    status: "success" | "error" | "running",
-    error?: string,
+    status: AutomationRunStatus,
+    opts?: { error?: string; taskId?: string; nextRunAt?: string },
   ): void {
     this.db
       .update(automations)
       .set({
         lastRunAt: now(),
         lastRunStatus: status,
-        lastRunError: error ?? null,
+        lastError: opts?.error ?? null,
+        lastTaskId: opts?.taskId ?? null,
+        nextRunAt: opts?.nextRunAt ?? null,
         updatedAt: now(),
       })
       .where(byId(id))
@@ -123,12 +149,12 @@ export class AutomationRepository {
 
   // --- Runs ---
 
-  createRun(data: CreateRunData): AutomationRun {
+  createRun(automationId: string): AutomationRunRow {
     const timestamp = now();
     const id = crypto.randomUUID();
-    const row: NewAutomationRun = {
+    const row: NewAutomationRunRow = {
       id,
-      automationId: data.automationId,
+      automationId,
       status: "running",
       startedAt: timestamp,
       createdAt: timestamp,
@@ -143,7 +169,7 @@ export class AutomationRepository {
 
   completeRun(
     runId: string,
-    status: "success" | "error",
+    status: "success" | "failed",
     output?: string,
     error?: string,
   ): void {
@@ -159,7 +185,7 @@ export class AutomationRepository {
       .run();
   }
 
-  findRunsByAutomationId(automationId: string, limit = 20): AutomationRun[] {
+  findRunsByAutomationId(automationId: string, limit = 20): AutomationRunRow[] {
     return this.db
       .select()
       .from(automationRuns)
@@ -169,12 +195,35 @@ export class AutomationRepository {
       .all();
   }
 
-  findRecentRuns(limit = 50): AutomationRun[] {
+  findRecentRuns(limit = 50): AutomationRunRow[] {
     return this.db
       .select()
       .from(automationRuns)
       .orderBy(desc(automationRuns.startedAt))
       .limit(limit)
       .all();
+  }
+
+  /** Convert a DB row to the shared Automation type */
+  toAutomation(row: AutomationRow): AutomationType {
+    return {
+      id: row.id,
+      name: row.name,
+      prompt: row.prompt,
+      repoPath: row.repoPath,
+      repository: row.repository,
+      githubIntegrationId: row.githubIntegrationId,
+      scheduleTime: row.scheduleTime,
+      timezone: row.timezone,
+      enabled: row.enabled,
+      templateId: row.templateId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      nextRunAt: row.nextRunAt,
+      lastRunAt: row.lastRunAt,
+      lastRunStatus: row.lastRunStatus as AutomationRunStatus | null,
+      lastTaskId: row.lastTaskId,
+      lastError: row.lastError,
+    };
   }
 }

@@ -1,21 +1,20 @@
 import { tmpdir } from "node:os";
 import type {
-  AutomationInfo,
+  Automation,
   AutomationRunInfo,
-  AutomationSchedule,
+  AutomationRunStatus,
 } from "@shared/types/automations";
 import { powerMonitor } from "electron";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
 import type {
-  Automation,
   AutomationRepository,
-  AutomationRun,
+  AutomationRow,
 } from "../../db/repositories/automation-repository";
 import { MAIN_TOKENS } from "../../di/tokens";
 import { logger } from "../../utils/logger";
 import { TypedEventEmitter } from "../../utils/typed-event-emitter";
 import type { AgentService } from "../agent/service";
-import { getDelayMs, getNextRunTime } from "./scheduler";
+import { computeNextRunAt, getDelayMs } from "./scheduler";
 
 const log = logger.scope("automation-service");
 
@@ -28,8 +27,8 @@ export const AutomationServiceEvent = {
 } as const;
 
 export interface AutomationServiceEvents {
-  [AutomationServiceEvent.AutomationCreated]: AutomationInfo;
-  [AutomationServiceEvent.AutomationUpdated]: AutomationInfo;
+  [AutomationServiceEvent.AutomationCreated]: Automation;
+  [AutomationServiceEvent.AutomationUpdated]: Automation;
   [AutomationServiceEvent.AutomationDeleted]: { id: string };
   [AutomationServiceEvent.RunStarted]: AutomationRunInfo;
   [AutomationServiceEvent.RunCompleted]: AutomationRunInfo;
@@ -67,7 +66,6 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
   init(): void {
     log.info("Initializing automation service");
 
-    // Reschedule timers after system wake
     powerMonitor.on("resume", () => {
       log.info("System resumed, rescheduling automations");
       this.rescheduleAll();
@@ -80,8 +78,6 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
    */
   setCredentials(creds: AutomationCredentials): void {
     this.credentials = creds;
-
-    // If we have credentials and no jobs scheduled, load from DB
     if (this.jobs.size === 0) {
       this.loadAndScheduleAll();
     }
@@ -103,19 +99,29 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
   create(data: {
     name: string;
     prompt: string;
-    schedule: AutomationSchedule;
-  }): AutomationInfo {
-    const automation = this.repo.create({
+    repoPath: string;
+    repository?: string | null;
+    githubIntegrationId?: number | null;
+    scheduleTime: string;
+    timezone: string;
+    templateId?: string | null;
+  }): Automation {
+    const row = this.repo.create({
       name: data.name,
       prompt: data.prompt,
-      schedule: data.schedule,
+      repoPath: data.repoPath,
+      repository: data.repository,
+      githubIntegrationId: data.githubIntegrationId,
+      scheduleTime: data.scheduleTime,
+      timezone: data.timezone,
+      templateId: data.templateId,
       enabled: true,
     });
-    const info = this.toAutomationInfo(automation);
-    this.scheduleJob(automation);
-    this.emit(AutomationServiceEvent.AutomationCreated, info);
-    log.info("Created automation", { id: automation.id, name: data.name });
-    return info;
+    const automation = this.repo.toAutomation(row);
+    this.scheduleJob(row);
+    this.emit(AutomationServiceEvent.AutomationCreated, automation);
+    log.info("Created automation", { id: row.id, name: data.name });
+    return automation;
   }
 
   update(
@@ -123,22 +129,26 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
     data: {
       name?: string;
       prompt?: string;
-      schedule?: AutomationSchedule;
+      repoPath?: string;
+      repository?: string | null;
+      githubIntegrationId?: number | null;
+      scheduleTime?: string;
+      timezone?: string;
+      templateId?: string | null;
       enabled?: boolean;
     },
-  ): AutomationInfo {
-    const automation = this.repo.update(id, data);
-    const info = this.toAutomationInfo(automation);
+  ): Automation {
+    const row = this.repo.update(id, data);
+    const automation = this.repo.toAutomation(row);
 
-    // Reschedule the job
     this.cancelJob(id);
-    if (automation.enabled) {
-      this.scheduleJob(automation);
+    if (row.enabled) {
+      this.scheduleJob(row);
     }
 
-    this.emit(AutomationServiceEvent.AutomationUpdated, info);
-    log.info("Updated automation", { id, ...data });
-    return info;
+    this.emit(AutomationServiceEvent.AutomationUpdated, automation);
+    log.info("Updated automation", { id });
+    return automation;
   }
 
   delete(id: string): void {
@@ -148,41 +158,39 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
     log.info("Deleted automation", { id });
   }
 
-  list(): AutomationInfo[] {
-    return this.repo.findAll().map((a) => this.toAutomationInfo(a));
+  list(): Automation[] {
+    return this.repo.findAll().map((row) => this.repo.toAutomation(row));
   }
 
-  getById(id: string): AutomationInfo | null {
-    const automation = this.repo.findById(id);
-    return automation ? this.toAutomationInfo(automation) : null;
+  getById(id: string): Automation | null {
+    const row = this.repo.findById(id);
+    return row ? this.repo.toAutomation(row) : null;
   }
 
   getRuns(automationId: string, limit = 20): AutomationRunInfo[] {
-    return this.repo
-      .findRunsByAutomationId(automationId, limit)
-      .map(this.toRunInfo);
+    return this.repo.findRunsByAutomationId(automationId, limit).map(toRunInfo);
   }
 
   getRecentRuns(limit = 50): AutomationRunInfo[] {
-    return this.repo.findRecentRuns(limit).map(this.toRunInfo);
+    return this.repo.findRecentRuns(limit).map(toRunInfo);
   }
 
   /** Manually trigger an automation right now */
   async triggerNow(id: string): Promise<AutomationRunInfo> {
-    const automation = this.repo.findById(id);
-    if (!automation) {
+    const row = this.repo.findById(id);
+    if (!row) {
       throw new Error(`Automation not found: ${id}`);
     }
-    return this.executeAutomation(automation);
+    return this.executeAutomation(row);
   }
 
   // --- Scheduling ---
 
   private loadAndScheduleAll(): void {
-    const automations = this.repo.findEnabled();
-    log.info("Loading automations", { count: automations.length });
-    for (const automation of automations) {
-      this.scheduleJob(automation);
+    const rows = this.repo.findEnabled();
+    log.info("Loading automations", { count: rows.length });
+    for (const row of rows) {
+      this.scheduleJob(row);
     }
   }
 
@@ -193,29 +201,32 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
     }
   }
 
-  private scheduleJob(automation: Automation): void {
-    if (!automation.enabled) return;
+  private scheduleJob(row: AutomationRow): void {
+    if (!row.enabled) return;
 
-    const nextRunAt = getNextRunTime(automation.schedule as AutomationSchedule);
-    const delayMs = getDelayMs(automation.schedule as AutomationSchedule);
+    const nextRunAt = computeNextRunAt(row.scheduleTime, row.timezone);
+    const delayMs = getDelayMs(row.scheduleTime, row.timezone);
 
     log.info("Scheduling automation", {
-      id: automation.id,
-      name: automation.name,
-      schedule: automation.schedule,
+      id: row.id,
+      name: row.name,
+      scheduleTime: row.scheduleTime,
+      timezone: row.timezone,
       nextRunAt: nextRunAt.toISOString(),
       delayMs,
     });
 
+    // Persist nextRunAt so the UI can show it
+    this.repo.update(row.id, { nextRunAt: nextRunAt.toISOString() });
+
     const timer = setTimeout(() => {
-      this.onJobFired(automation.id);
+      this.onJobFired(row.id);
     }, delayMs);
 
-    // Prevent the timer from keeping the process alive
     timer.unref();
 
-    this.jobs.set(automation.id, {
-      automationId: automation.id,
+    this.jobs.set(row.id, {
+      automationId: row.id,
       timer,
       nextRunAt,
     });
@@ -230,32 +241,29 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
   }
 
   private cancelAllJobs(): void {
-    for (const [id, job] of this.jobs) {
+    for (const [, job] of this.jobs) {
       clearTimeout(job.timer);
-      this.jobs.delete(id);
     }
+    this.jobs.clear();
   }
 
   private async onJobFired(automationId: string): Promise<void> {
-    // Remove the expired job entry
     this.jobs.delete(automationId);
 
-    // Re-read from DB in case it was updated/deleted
-    const automation = this.repo.findById(automationId);
-    if (!automation || !automation.enabled) {
+    const row = this.repo.findById(automationId);
+    if (!row || !row.enabled) {
       log.info("Automation disabled or deleted, skipping", { automationId });
       return;
     }
 
-    // Skip if already running
     if (this.runningAutomations.has(automationId)) {
       log.warn("Automation already running, skipping", { automationId });
-      this.scheduleJob(automation);
+      this.scheduleJob(row);
       return;
     }
 
     try {
-      await this.executeAutomation(automation);
+      await this.executeAutomation(row);
     } catch (err) {
       log.error("Failed to execute automation", {
         automationId,
@@ -263,7 +271,7 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
       });
     }
 
-    // Reschedule for the next run (re-read from DB in case it changed)
+    // Reschedule
     const current = this.repo.findById(automationId);
     if (current?.enabled) {
       this.scheduleJob(current);
@@ -273,69 +281,64 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
   // --- Execution ---
 
   private async executeAutomation(
-    automation: Automation,
+    row: AutomationRow,
   ): Promise<AutomationRunInfo> {
     if (!this.credentials) {
       throw new Error("No credentials available for automation execution");
     }
 
-    this.runningAutomations.add(automation.id);
-    this.repo.updateLastRun(automation.id, "running");
+    this.runningAutomations.add(row.id);
+    this.repo.updateLastRun(row.id, "running");
 
-    const run = this.repo.createRun({ automationId: automation.id });
-    const runInfo = this.toRunInfo(run);
+    const run = this.repo.createRun(row.id);
+    const runInfo = toRunInfo(run);
     this.emit(AutomationServiceEvent.RunStarted, runInfo);
 
     log.info("Executing automation", {
-      automationId: automation.id,
-      name: automation.name,
+      automationId: row.id,
+      name: row.name,
       runId: run.id,
     });
 
     try {
-      const output = await this.runAgent(automation.prompt);
+      const output = await this.runAgent(row.prompt, row.repoPath);
 
       this.repo.completeRun(run.id, "success", output);
-      this.repo.updateLastRun(automation.id, "success");
+      this.repo.updateLastRun(row.id, "success");
 
-      const completedRun = this.toRunInfo({
-        ...run,
+      const completed: AutomationRunInfo = {
+        ...runInfo,
         status: "success",
         output,
         completedAt: new Date().toISOString(),
-      });
-      this.emit(AutomationServiceEvent.RunCompleted, completedRun);
-
-      log.info("Automation completed successfully", {
-        automationId: automation.id,
-        runId: run.id,
-      });
-      return completedRun;
+      };
+      this.emit(AutomationServiceEvent.RunCompleted, completed);
+      log.info("Automation completed", { automationId: row.id, runId: run.id });
+      return completed;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.repo.completeRun(run.id, "error", undefined, errorMsg);
-      this.repo.updateLastRun(automation.id, "error", errorMsg);
+      this.repo.completeRun(run.id, "failed", undefined, errorMsg);
+      this.repo.updateLastRun(row.id, "failed", { error: errorMsg });
 
-      const failedRun = this.toRunInfo({
-        ...run,
-        status: "error",
+      const failed: AutomationRunInfo = {
+        ...runInfo,
+        status: "failed",
         error: errorMsg,
         completedAt: new Date().toISOString(),
-      });
-      this.emit(AutomationServiceEvent.RunCompleted, failedRun);
-
+      };
+      this.emit(AutomationServiceEvent.RunCompleted, failed);
       log.error("Automation failed", {
-        automationId: automation.id,
+        automationId: row.id,
         runId: run.id,
         error: errorMsg,
       });
-      return failedRun;
+      return failed;
     } finally {
-      this.runningAutomations.delete(automation.id);
+      this.runningAutomations.delete(row.id);
     }
   }
 
-  private async runAgent(prompt: string): Promise<string> {
+  private async runAgent(prompt: string, repoPath: string): Promise<string> {
     if (!this.credentials) {
       throw new Error("No credentials available");
     }
@@ -344,12 +347,10 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
     const taskRunId = `${taskId}:run`;
 
     try {
-      // Start a new agent session with bypassPermissions mode
-      // so it runs fully autonomously
       const session = await this.agentService.startSession({
         taskId,
         taskRunId,
-        repoPath: tmpdir(),
+        repoPath: repoPath || tmpdir(),
         apiKey: this.credentials.apiKey,
         apiHost: this.credentials.apiHost,
         projectId: this.credentials.projectId,
@@ -357,19 +358,12 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
         adapter: "claude",
       });
 
-      // Send the automation prompt
       const result = await this.agentService.prompt(session.sessionId, [
-        {
-          type: "text",
-          text: prompt,
-        },
+        { type: "text", text: prompt },
       ]);
 
-      // Collect response text from session events
-      // For now, return the stop reason as a simple status
       return `Completed with stop reason: ${result.stopReason}`;
     } finally {
-      // Clean up the session
       try {
         await this.agentService.cancelSession(taskRunId);
       } catch {
@@ -377,36 +371,24 @@ export class AutomationService extends TypedEventEmitter<AutomationServiceEvents
       }
     }
   }
+}
 
-  // --- Conversion helpers ---
-
-  private toAutomationInfo(automation: Automation): AutomationInfo {
-    const job = this.jobs.get(automation.id);
-    return {
-      id: automation.id,
-      name: automation.name,
-      prompt: automation.prompt,
-      schedule: automation.schedule as AutomationSchedule,
-      enabled: automation.enabled,
-      lastRunAt: automation.lastRunAt,
-      lastRunStatus:
-        automation.lastRunStatus as AutomationInfo["lastRunStatus"],
-      lastRunError: automation.lastRunError,
-      nextRunAt: job ? job.nextRunAt.toISOString() : null,
-      createdAt: automation.createdAt,
-      updatedAt: automation.updatedAt,
-    };
-  }
-
-  private toRunInfo(run: AutomationRun): AutomationRunInfo {
-    return {
-      id: run.id,
-      automationId: run.automationId,
-      status: run.status,
-      output: run.output,
-      error: run.error,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-    };
-  }
+function toRunInfo(run: {
+  id: string;
+  automationId: string;
+  status: string;
+  output: string | null;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}): AutomationRunInfo {
+  return {
+    id: run.id,
+    automationId: run.automationId,
+    status: run.status as AutomationRunStatus,
+    output: run.output,
+    error: run.error,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+  };
 }
