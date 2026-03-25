@@ -151,8 +151,15 @@ export class AgentMemoryService {
         (now - new Date(memory.createdAt).getTime()) / (1000 * 60 * 60 * 24);
       if (ageDays < minAgeDays) continue;
 
+      // Access-weighted decay: frequently accessed memories decay up to 70% slower
+      const accessProtection = Math.min(
+        1,
+        Math.log2(memory.accessCount + 1) / 5,
+      );
+      const effectiveDecay = decayRate * (1 - accessProtection * 0.7);
+
       const newImportance = clampImportance(
-        memory.importance * (1 - ageDays * decayRate),
+        memory.importance * (1 - ageDays * effectiveDecay),
       );
       if (newImportance !== memory.importance) {
         this.repo.update({ ...memory, importance: newImportance });
@@ -162,6 +169,45 @@ export class AgentMemoryService {
 
     this.logger?.debug("Decay pass complete", { decayed });
     return decayed;
+  }
+
+  consolidate(limit = 50): number {
+    const memories = this.repo.getSorted("importance", { limit });
+    const merged = new Set<string>();
+    let mergeCount = 0;
+
+    for (const memory of memories) {
+      if (merged.has(memory.id)) continue;
+      if (memory.memoryType === "identity") continue;
+
+      const similar = this.repo.searchText(memory.content, 5);
+      for (const candidate of similar) {
+        if (candidate.id === memory.id) continue;
+        if (merged.has(candidate.id)) continue;
+        if (candidate.memoryType !== memory.memoryType) continue;
+
+        // Simple similarity: same type + high word overlap
+        const wordsA = new Set(memory.content.toLowerCase().split(/\s+/));
+        const wordsB = new Set(candidate.content.toLowerCase().split(/\s+/));
+        const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
+        const union = new Set([...wordsA, ...wordsB]).size;
+        const jaccard = union > 0 ? intersection / union : 0;
+
+        if (jaccard > 0.6) {
+          const keepId =
+            memory.importance >= candidate.importance
+              ? memory.id
+              : candidate.id;
+          const mergeId = keepId === memory.id ? candidate.id : memory.id;
+          this.merge(keepId, mergeId);
+          merged.add(mergeId);
+          mergeCount++;
+        }
+      }
+    }
+
+    this.logger?.debug("Consolidation pass complete", { merged: mergeCount });
+    return mergeCount;
   }
 
   prune(threshold = 0.1, minAgeDays = 30): number {

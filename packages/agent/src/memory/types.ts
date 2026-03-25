@@ -116,6 +116,10 @@ export interface ExtractedMemory {
   content: string;
   memoryType: MemoryType;
   importance: number;
+  /** ID of an existing memory this one updates */
+  updatesId?: string;
+  /** ID of an existing memory this one contradicts */
+  contradictsId?: string;
 }
 
 export interface MemoryServiceConfig {
