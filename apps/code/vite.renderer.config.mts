@@ -8,6 +8,7 @@ import {
   createForceDevModeDefine,
   createPosthogPlugin,
   rendererAliases,
+  resolveAgentPlugin,
 } from "./vite.shared.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      resolveAgentPlugin(),
       react(),
       tsconfigPaths(),
       createPosthogPlugin(env, "posthog-code-renderer"),

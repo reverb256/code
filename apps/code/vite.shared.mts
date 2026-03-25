@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import posthog from "@posthog/rollup-plugin";
@@ -40,15 +41,36 @@ const baseAliases: Alias[] = [
   { find: "@shared", replacement: path.resolve(__dirname, "./src/shared") },
 ];
 
+const agentPkg = JSON.parse(
+  readFileSync(
+    path.resolve(__dirname, "../../packages/agent/package.json"),
+    "utf-8",
+  ),
+);
+const agentSrc = path.resolve(__dirname, "../../packages/agent/src");
+const agentExportMap = new Map<string, string>();
+for (const [key, value] of Object.entries(
+  agentPkg.exports as Record<string, { import: string }>,
+)) {
+  const srcFile = value.import.replace("./dist/", "").replace(/\.js$/, ".ts");
+  agentExportMap.set(
+    key === "." ? "@posthog/agent" : `@posthog/agent/${key.slice(2)}`,
+    srcFile,
+  );
+}
+
+export function resolveAgentPlugin(): Plugin {
+  return {
+    name: "resolve-agent-workspace",
+    resolveId(source) {
+      const mapped = agentExportMap.get(source);
+      if (mapped) return path.resolve(agentSrc, mapped);
+      return null;
+    },
+  };
+}
+
 const workspaceAliases: Alias[] = [
-  {
-    find: /^@posthog\/agent\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/agent/src/$1.ts"),
-  },
-  {
-    find: "@posthog/agent",
-    replacement: path.resolve(__dirname, "../../packages/agent/src/index.ts"),
-  },
   {
     find: "@posthog/shared",
     replacement: path.resolve(__dirname, "../../packages/shared/src/index.ts"),

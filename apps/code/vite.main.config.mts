@@ -20,6 +20,7 @@ import {
   createForceDevModeDefine,
   createPosthogPlugin,
   mainAliases,
+  resolveAgentPlugin,
 } from "./vite.shared.mjs";
 import { autoServicesPlugin } from "./vite-plugin-auto-services";
 
@@ -462,6 +463,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      resolveAgentPlugin(),
       tsconfigPaths(),
       autoServicesPlugin(join(__dirname, "src/main/services")),
       fixFilenameCircularRef(),

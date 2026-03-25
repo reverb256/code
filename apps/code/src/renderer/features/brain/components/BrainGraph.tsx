@@ -1,11 +1,11 @@
-import { logger } from "@utils/logger";
 import {
+  ArrowClockwise,
   ArrowsIn,
   ArrowsOut,
   Crosshair,
-  ArrowClockwise,
   X,
 } from "@phosphor-icons/react";
+import { logger } from "@utils/logger";
 import { AnimatePresence, motion } from "framer-motion";
 import Graph from "graphology";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
@@ -359,7 +359,7 @@ export function BrainGraph() {
   const [nodeCount, setNodeCount] = useState(0);
   const [edgeCount, setEdgeCount] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [_hoveredNode, setHoveredNode] = useState<string | null>(null);
   const hoveredNodeRef = useRef<string | null>(null);
 
   const cleanup = useCallback(() => {
@@ -532,11 +532,11 @@ export function BrainGraph() {
       sigma.off("leaveNode", handleLeaveNode);
       sigma.off("clickStage", handleClickStage);
     };
-  }, [isLoading]);
+  }, []);
 
   useEffect(() => {
     sigmaRef.current?.refresh();
-  }, [hoveredNode]);
+  }, []);
 
   const nodeTypeEntries = useMemo(
     () => Object.entries(NODE_COLORS) as [NodeType, string][],
@@ -550,7 +550,7 @@ export function BrainGraph() {
   return (
     <div className="relative h-full w-full">
       {/* Stats bar */}
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-3 rounded-md bg-[--color-panel-solid] px-3 py-1.5 text-xs text-[--gray-a9]">
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-3 rounded-md bg-[--color-panel-solid] px-3 py-1.5 text-[--gray-a9] text-xs">
         <span>{nodeCount} nodes</span>
         <span className="text-[--gray-a6]">|</span>
         <span>{edgeCount} edges</span>
@@ -558,7 +558,7 @@ export function BrainGraph() {
 
       {/* Legend */}
       <div className="absolute bottom-3 left-3 z-10 rounded-md bg-[--color-panel-solid] p-3">
-        <div className="mb-2 text-xs font-medium text-[--gray-a9]">
+        <div className="mb-2 font-medium text-[--gray-a9] text-xs">
           Node Types
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -568,12 +568,12 @@ export function BrainGraph() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ backgroundColor: color }}
               />
-              <span className="text-xs text-[--gray-a9]">{type}</span>
+              <span className="text-[--gray-a9] text-xs">{type}</span>
             </div>
           ))}
         </div>
-        <div className="mt-2 border-t border-[--gray-a4] pt-2">
-          <div className="mb-1 text-xs font-medium text-[--gray-a9]">
+        <div className="mt-2 border-[--gray-a4] border-t pt-2">
+          <div className="mb-1 font-medium text-[--gray-a9] text-xs">
             Edge Types
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -583,11 +583,10 @@ export function BrainGraph() {
                   className="inline-block h-0.5 w-3"
                   style={{
                     backgroundColor: color,
-                    borderStyle:
-                      type === "contradicts" ? "dashed" : "solid",
+                    borderStyle: type === "contradicts" ? "dashed" : "solid",
                   }}
                 />
-                <span className="text-xs text-[--gray-a9]">
+                <span className="text-[--gray-a9] text-xs">
                   {type.replace(/_/g, " ")}
                 </span>
               </div>
@@ -597,7 +596,7 @@ export function BrainGraph() {
       </div>
 
       {/* Controls */}
-      <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
+      <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
         <button
           type="button"
           onClick={() => sigmaRef.current?.getCamera().animatedReset()}
@@ -658,11 +657,11 @@ export function BrainGraph() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-3 right-3 z-20 w-72 rounded-lg border border-[--gray-a4] bg-[--color-panel-solid] p-4 shadow-xl"
+            className="absolute right-3 bottom-3 z-20 w-72 rounded-lg border border-[--gray-a4] bg-[--color-panel-solid] p-4 shadow-xl"
           >
             <div className="mb-2 flex items-center justify-between">
               <span
-                className="rounded px-1.5 py-0.5 text-xs font-medium"
+                className="rounded px-1.5 py-0.5 font-medium text-xs"
                 style={{
                   backgroundColor: `${NODE_COLORS[selectedNode.node.nodeType]}22`,
                   color: NODE_COLORS[selectedNode.node.nodeType],
@@ -678,13 +677,11 @@ export function BrainGraph() {
                 <X size={12} />
               </button>
             </div>
-            <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[--gray-a11]">
+            <p className="mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-[--gray-a11] text-sm leading-relaxed">
               {selectedNode.node.content}
             </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[--gray-a9]">
-              <span>
-                Importance: {selectedNode.node.importance.toFixed(2)}
-              </span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[--gray-a9] text-xs">
+              <span>Importance: {selectedNode.node.importance.toFixed(2)}</span>
               <span>
                 Created:{" "}
                 {new Date(selectedNode.node.createdAt).toLocaleDateString()}
