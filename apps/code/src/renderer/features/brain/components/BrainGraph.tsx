@@ -31,13 +31,7 @@ type MemoryNodeType =
   | "goal"
   | "todo";
 
-type RelationEdgeType =
-  | "related_to"
-  | "updates"
-  | "contradicts"
-  | "caused_by"
-  | "result_of"
-  | "part_of";
+type RelationEdgeType = "related_to" | "updates" | "contradicts";
 
 interface MemoryNode {
   id: string;
@@ -84,9 +78,6 @@ const EDGE_COLORS: Record<RelationEdgeType, string> = {
   related_to: "#555555",
   updates: "#60a5fa",
   contradicts: "#f87171",
-  caused_by: "#4ade80",
-  result_of: "#fb923c",
-  part_of: "#a78bfa",
 };
 
 const FADED_NODE_COLOR = "#333333";

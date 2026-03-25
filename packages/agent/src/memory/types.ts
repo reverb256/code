@@ -26,9 +26,6 @@ export const RelationType = {
   RelatedTo: "related_to",
   Updates: "updates",
   Contradicts: "contradicts",
-  CausedBy: "caused_by",
-  ResultOf: "result_of",
-  PartOf: "part_of",
 } as const;
 
 export type RelationType = (typeof RelationType)[keyof typeof RelationType];

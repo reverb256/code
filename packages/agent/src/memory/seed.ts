@@ -416,10 +416,10 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
     weight: 0.7,
   });
 
-  // Goal hierarchy (todo --part_of--> goal, decision --result_of--> goal)
+  // Goal hierarchy
   svc.link(todoPRComments.id, {
     targetId: goalShipPR.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
@@ -431,55 +431,55 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(decisionWorktrees.id, {
     targetId: goalParallelTasks.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
   svc.link(decisionCap4.id, {
     targetId: goalParallelTasks.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
   svc.link(todoHybridSearch.id, {
     targetId: goalMemorySystem.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
   svc.link(todoBulletin.id, {
     targetId: goalMemorySystem.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
   svc.link(todoMaintenance.id, {
     targetId: goalMemorySystem.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
   svc.link(todoBrainWire.id, {
     targetId: goalBrainView.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
   svc.link(decisionSigma.id, {
     targetId: goalBrainView.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
   svc.link(todoMultiRepoUI.id, {
     targetId: goalMultiRepo.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
   svc.link(todoSessionMigrate.id, {
     targetId: goalSessionRestore.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
@@ -529,7 +529,7 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(factMemoryDb.id, {
     targetId: decisionRawSqlite.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
@@ -542,13 +542,13 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(factSigma.id, {
     targetId: decisionSigma.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
   svc.link(factWorktrees.id, {
     targetId: decisionWorktrees.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
@@ -573,7 +573,7 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(decisionWorktrees.id, {
     targetId: eventWorktreeShipped.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
@@ -592,13 +592,13 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
   // Event links
   svc.link(eventMemoryLanded.id, {
     targetId: goalMemorySystem.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
   svc.link(eventMemoryLanded.id, {
     targetId: decisionRepoService.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
@@ -610,7 +610,7 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(eventBrainMVP.id, {
     targetId: goalBrainView.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
@@ -622,13 +622,13 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(eventPRReviewAlpha.id, {
     targetId: goalShipPR.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.8,
   });
 
   svc.link(eventSessionRehydrate.id, {
     targetId: goalSessionRestore.id,
-    relationType: RelationType.ResultOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
@@ -659,13 +659,13 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
 
   svc.link(obsStorageLimit.id, {
     targetId: todoSessionMigrate.id,
-    relationType: RelationType.CausedBy,
+    relationType: RelationType.RelatedTo,
     weight: 0.9,
   });
 
   svc.link(obsPRLatency.id, {
     targetId: todoPRComments.id,
-    relationType: RelationType.CausedBy,
+    relationType: RelationType.RelatedTo,
     weight: 0.7,
   });
 
@@ -709,7 +709,7 @@ export function seedMemories(options: SeedOptions): AgentMemoryService {
   // Todo cross-links
   svc.link(todoAgentMetrics.id, {
     targetId: goalParallelTasks.id,
-    relationType: RelationType.PartOf,
+    relationType: RelationType.RelatedTo,
     weight: 0.5,
   });
 
