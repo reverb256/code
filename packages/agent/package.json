@@ -47,6 +47,18 @@
     "./server": {
       "types": "./dist/server/agent-server.d.ts",
       "import": "./dist/server/agent-server.js"
+    },
+    "./memory/types": {
+      "types": "./dist/memory/types.d.ts",
+      "import": "./dist/memory/types.js"
+    },
+    "./memory/repository": {
+      "types": "./dist/memory/store.d.ts",
+      "import": "./dist/memory/store.js"
+    },
+    "./memory/service": {
+      "types": "./dist/memory/service.d.ts",
+      "import": "./dist/memory/service.js"
     }
   },
   "bin": {
@@ -78,6 +90,7 @@
   "devDependencies": {
     "@posthog/shared": "workspace:*",
     "@posthog/git": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "latest",
     "@types/tar": "^6.1.13",
     "msw": "^2.12.7",
@@ -90,6 +103,7 @@
     "@agentclientprotocol/sdk": "0.16.1",
     "@anthropic-ai/claude-agent-sdk": "0.2.76",
     "@anthropic-ai/sdk": "^0.78.0",
+    "better-sqlite3": "^12.8.0",
     "@hono/node-server": "^1.19.9",
     "@opentelemetry/api-logs": "^0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.208.0",
