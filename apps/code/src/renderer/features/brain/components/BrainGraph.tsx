@@ -7,7 +7,8 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useTRPC } from "@renderer/trpc";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSubscription } from "@trpc/tanstack-react-query";
 import { logger } from "@utils/logger";
 import { AnimatePresence, motion } from "framer-motion";
 import Graph from "graphology";
