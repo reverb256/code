@@ -658,7 +658,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     const isPreview = taskId === "__preview__";
 
-    const memoryDbPath = join(app.getPath("userData"), "memory.db");
+    const memoryDbPath = join(app.getPath("userData"), "memory");
     const agent = new Agent({
       posthog: {
         apiUrl: credentials.apiHost,
