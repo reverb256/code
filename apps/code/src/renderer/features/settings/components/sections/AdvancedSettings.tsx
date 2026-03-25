@@ -244,8 +244,10 @@ export function AdvancedSettings() {
 
   const maintenanceMutation = useMutation(
     trpc.memory.maintenance.mutationOptions({
-      onSuccess: ({ decayed, pruned }) => {
-        toast.success(`Maintenance: decayed ${decayed}, pruned ${pruned}`);
+      onSuccess: ({ decayed, pruned, consolidated }) => {
+        toast.success(
+          `Maintenance: decayed ${decayed}, pruned ${pruned}, consolidated ${consolidated}`,
+        );
         queryClient.invalidateQueries({
           queryKey: trpc.memory.count.queryKey(),
         });

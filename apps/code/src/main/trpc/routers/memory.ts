@@ -50,7 +50,13 @@ export const memoryRouter = router({
     .query(({ input }) => getService().getAssociations(input.memoryId)),
 
   maintenance: publicProcedure
-    .output(z.object({ decayed: z.number(), pruned: z.number() }))
+    .output(
+      z.object({
+        decayed: z.number(),
+        pruned: z.number(),
+        consolidated: z.number(),
+      }),
+    )
     .mutation(() => getService().runMaintenance()),
 
   seed: publicProcedure.output(z.number()).mutation(() => getService().seed()),

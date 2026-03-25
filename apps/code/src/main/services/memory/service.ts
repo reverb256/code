@@ -94,19 +94,25 @@ export class MemoryService {
     return this.service.getAssociations(memoryId);
   }
 
-  runMaintenance(): { decayed: number; pruned: number } {
+  runMaintenance(): { decayed: number; pruned: number; consolidated: number } {
     try {
       const decayed = this.service.decayImportance(
         DECAY_RATE,
         DECAY_MIN_AGE_DAYS,
       );
       const pruned = this.service.prune(PRUNE_THRESHOLD, PRUNE_MIN_AGE_DAYS);
+      const consolidated = this.service.consolidate();
       const total = this.service.count();
-      log.info("Memory maintenance complete", { decayed, pruned, total });
-      return { decayed, pruned };
+      log.info("Memory maintenance complete", {
+        decayed,
+        pruned,
+        consolidated,
+        total,
+      });
+      return { decayed, pruned, consolidated };
     } catch (error) {
       log.error("Memory maintenance failed", { error });
-      return { decayed: 0, pruned: 0 };
+      return { decayed: 0, pruned: 0, consolidated: 0 };
     }
   }
 
