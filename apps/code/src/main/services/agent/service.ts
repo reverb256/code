@@ -658,6 +658,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     const isPreview = taskId === "__preview__";
 
+    const memoryDbPath = join(app.getPath("userData"), "memory.db");
     const agent = new Agent({
       posthog: {
         apiUrl: credentials.apiHost,
@@ -669,6 +670,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       localCachePath: join(app.getPath("home"), ".posthog-code"),
       debug: isDevBuild(),
       onLog: onAgentLog,
+      memory: {
+        enabled: true,
+        dbPath: memoryDbPath,
+      },
     });
 
     try {

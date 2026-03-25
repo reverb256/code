@@ -50,11 +50,14 @@ export interface BuildOptionsParams {
 
 export function buildSystemPrompt(
   customPrompt?: unknown,
+  memoriesContext?: string,
 ): Options["systemPrompt"] {
+  const appendContent = APPENDED_INSTRUCTIONS + (memoriesContext || "");
+
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",
     preset: "claude_code",
-    append: APPENDED_INSTRUCTIONS,
+    append: appendContent,
   };
 
   if (!customPrompt) {
@@ -62,7 +65,7 @@ export function buildSystemPrompt(
   }
 
   if (typeof customPrompt === "string") {
-    return customPrompt + APPENDED_INSTRUCTIONS;
+    return customPrompt + appendContent;
   }
 
   if (
@@ -73,7 +76,7 @@ export function buildSystemPrompt(
   ) {
     return {
       ...defaultPrompt,
-      append: customPrompt.append + APPENDED_INSTRUCTIONS,
+      append: customPrompt.append + appendContent,
     };
   }
 

@@ -106,6 +106,7 @@ export interface ClaudeAcpAgentOptions {
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
+  memoryService?: import("../../memory/agent-memory").AgentMemoryManager;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
@@ -318,6 +319,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // Broadcast user message to client
     await this.broadcastUserMessage(params);
+
+    // Feed user message to memory buffer
+    this.ingestToMemory(params.prompt, "user");
 
     this.session.promptRunning = true;
     let handedOff = false;
@@ -554,6 +558,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             const result = await handleUserAssistantMessage(message, context);
+
+            // Feed assistant messages to memory buffer
+            if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null
+            ) {
+              this.ingestMessageToMemory(message.message, "assistant");
+            }
+
             if (result.error) throw result.error;
             if (result.shouldStop) {
               return { stopReason: "end_turn" };
@@ -798,7 +811,47 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     await settingsManager.initialize();
 
     const mcpServers = parseMcpServers(params);
-    const systemPrompt = buildSystemPrompt(meta?.systemPrompt);
+
+    // Register memory MCP tools if memory service is available
+    if (this.options?.memoryService) {
+      try {
+        const { createMemoryMcpServer } = await import(
+          "../../memory/mcp-tools"
+        );
+        const memoryMcpServer = createMemoryMcpServer(
+          this.options.memoryService,
+        );
+        mcpServers.memory = memoryMcpServer;
+        this.logger.info("Registered memory MCP tools");
+      } catch (err) {
+        this.logger.error("Failed to register memory MCP tools", {
+          error: err,
+        });
+      }
+    }
+
+    // Recall relevant memories for system prompt injection
+    let memoriesContext: string | undefined;
+    if (this.options?.memoryService && !isResume) {
+      try {
+        const taskDescription = meta?.systemPrompt
+          ? typeof meta.systemPrompt === "string"
+            ? meta.systemPrompt
+            : ""
+          : "";
+        memoriesContext =
+          this.options.memoryService.recall(taskDescription) || undefined;
+        if (memoriesContext) {
+          this.logger.info("Injected memories into system prompt", {
+            chars: memoriesContext.length,
+          });
+        }
+      } catch (err) {
+        this.logger.error("Failed to recall memories", { error: err });
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(meta?.systemPrompt, memoriesContext);
 
     this.logger.info(isResume ? "Resuming session" : "Creating new session", {
       sessionId,
@@ -962,6 +1015,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
+    }
+
+    // Start periodic memory distillation
+    if (this.options?.memoryService) {
+      this.options.memoryService.startPeriodicDistillation();
+      this.logger.info("Started periodic memory distillation");
     }
 
     this.logger.info(
@@ -1233,6 +1292,50 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       };
       await this.client.sessionUpdate(notification);
       this.appendNotification(params.sessionId, notification);
+    }
+  }
+
+  // ── Memory Ingestion ──────────────────────────────────────────────────
+
+  private ingestToMemory(
+    promptContent: PromptRequest["prompt"],
+    source: string,
+  ): void {
+    const memoryService = this.options?.memoryService;
+    if (!memoryService) return;
+
+    try {
+      for (const chunk of promptContent) {
+        if (typeof chunk === "string") {
+          memoryService.ingest(chunk, source);
+        } else if (chunk && typeof chunk === "object" && "text" in chunk) {
+          memoryService.ingest((chunk as { text: string }).text, source);
+        }
+      }
+    } catch {
+      // Non-fatal: don't break the conversation if memory ingestion fails
+    }
+  }
+
+  private ingestMessageToMemory(
+    message: { content: string | Array<{ type: string; text?: string }> },
+    source: string,
+  ): void {
+    const memoryService = this.options?.memoryService;
+    if (!memoryService) return;
+
+    try {
+      if (typeof message.content === "string") {
+        memoryService.ingest(message.content, source);
+      } else if (Array.isArray(message.content)) {
+        for (const block of message.content) {
+          if (block.type === "text" && block.text) {
+            memoryService.ingest(block.text, source);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal
     }
   }
 }

@@ -18,7 +18,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { Logger } from "../utils/logger";
-import type { MemoryService } from "./service";
+import type { AgentMemoryManager } from "./agent-memory";
 import { DEFAULT_IMPORTANCE, MemoryType } from "./types";
 
 const MEMORY_TYPE_VALUES = Object.values(MemoryType) as [string, ...string[]];
@@ -54,7 +54,7 @@ interface ListMemoriesArgs {
  * The returned config can be added directly to Options.mcpServers.
  */
 export function createMemoryMcpServer(
-  memoryService: MemoryService,
+  memoryService: AgentMemoryManager,
 ): McpSdkServerConfigWithInstance {
   const logger = new Logger({ debug: true, prefix: "[MemoryMCP]" });
 

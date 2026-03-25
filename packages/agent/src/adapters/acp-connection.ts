@@ -1,5 +1,6 @@
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import type { AgentMemoryManager } from "../memory/agent-memory";
 import type { SessionLogWriter } from "../session-log-writer";
 import type { ProcessSpawnedCallback } from "../types";
 import { Logger } from "../utils/logger";
@@ -26,6 +27,8 @@ export type AcpConnectionConfig = {
   processCallbacks?: ProcessSpawnedCallback;
   codexOptions?: CodexProcessOptions;
   allowedModelIds?: Set<string>;
+  /** Memory service for cross-task knowledge sharing */
+  memoryService?: AgentMemoryManager;
 };
 
 export type AcpConnection = {
@@ -195,7 +198,12 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
 
   let agent: ClaudeAcpAgent | null = null;
   const agentConnection = new AgentSideConnection((client) => {
-    agent = new ClaudeAcpAgent(client, config.processCallbacks);
+    agent = new ClaudeAcpAgent(client, {
+      onProcessSpawned: config.processCallbacks?.onProcessSpawned,
+      onProcessExited: config.processCallbacks?.onProcessExited,
+      onMcpServersReady: config.processCallbacks?.onMcpServersReady,
+      memoryService: config.memoryService,
+    });
     logger.info(`Created ${agent.adapterName} agent`);
     return agent;
   }, agentStream);

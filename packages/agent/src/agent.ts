@@ -7,6 +7,7 @@ import {
   DEFAULT_GATEWAY_MODEL,
   fetchModelsList,
 } from "./gateway-models";
+import { AgentMemoryManager } from "./memory/agent-memory";
 import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { AgentConfig, TaskExecutionOptions } from "./types";
@@ -18,6 +19,7 @@ export class Agent {
   private acpConnection?: InProcessAcpConnection;
   private taskRunId?: string;
   private sessionLogWriter?: SessionLogWriter;
+  private memoryService?: AgentMemoryManager;
 
   constructor(config: AgentConfig) {
     this.logger = new Logger({
@@ -42,6 +44,15 @@ export class Agent {
           () => {},
         );
       }
+    }
+
+    if (config.memory?.enabled) {
+      this.memoryService = new AgentMemoryManager({
+        dbPath: config.memory.dbPath,
+        distillIntervalMs: config.memory.distillIntervalMs,
+        recallTokenBudget: config.memory.recallTokenBudget,
+        llm: config.memory.llm,
+      });
     }
   }
 
@@ -120,6 +131,7 @@ export class Agent {
       logger: this.logger,
       processCallbacks: options.processCallbacks,
       allowedModelIds,
+      memoryService: this.memoryService,
       codexOptions:
         options.adapter === "codex" && gatewayConfig
           ? {
@@ -173,7 +185,15 @@ export class Agent {
     await this.sessionLogWriter?.flushAll();
   }
 
+  getAgentMemoryManager(): AgentMemoryManager | undefined {
+    return this.memoryService;
+  }
+
   async cleanup(): Promise<void> {
+    // Flush remaining conversation buffer through memory distillation
+    if (this.memoryService) {
+      await this.memoryService.flush();
+    }
     if (this.sessionLogWriter && this.taskRunId) {
       await this.sessionLogWriter.flush(this.taskRunId);
     }

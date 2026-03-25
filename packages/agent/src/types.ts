@@ -150,6 +150,23 @@ export interface AgentConfig {
   localCachePath?: string;
   debug?: boolean;
   onLog?: OnLogCallback;
+  /** Memory system configuration. When set, enables cross-task memory. */
+  memory?: {
+    /** Enable the memory system */
+    enabled: boolean;
+    /** Path to the SQLite database file */
+    dbPath: string;
+    /** Interval between periodic distillation runs in ms (default: 300_000 = 5 min) */
+    distillIntervalMs?: number;
+    /** Max approximate tokens for recalled memories (default: 1500) */
+    recallTokenBudget?: number;
+    /** LLM config overrides for extraction (defaults to gateway env vars) */
+    llm?: {
+      apiKey?: string;
+      baseUrl?: string;
+      model?: string;
+    };
+  };
 }
 
 // Device info for tracking where work happens
