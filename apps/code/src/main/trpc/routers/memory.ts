@@ -102,4 +102,13 @@ export const memoryRouter = router({
   reset: publicProcedure.mutation(() => {
     getService().reset();
   }),
+
+  onChanged: publicProcedure.subscription(async function* (opts) {
+    const service = getService();
+    for await (const data of service.toIterable(MemoryServiceEvent.Changed, {
+      signal: opts.signal,
+    })) {
+      yield data;
+    }
+  }),
 });
