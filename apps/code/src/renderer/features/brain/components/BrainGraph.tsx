@@ -322,6 +322,7 @@ export function BrainGraph() {
   const [nodeCount, setNodeCount] = useState(0);
   const [edgeCount, setEdgeCount] = useState(0);
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
+  const selectedNodeIdRef = useRef<string | null>(null);
   const [brainSelected, setBrainSelected] = useState(false);
   const [_hoveredNode, setHoveredNode] = useState<string | null>(null);
   const hoveredNodeRef = useRef<string | null>(null);
@@ -358,17 +359,11 @@ export function BrainGraph() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: ftsResults } = useQuery({
-    ...trpc.memory.search.queryOptions({ query: debouncedSearch, limit: 50 }),
-    enabled: debouncedSearch.length > 0,
-  });
-
   const queryClient = useQueryClient();
   useSubscription(
     trpc.memory.onChanged.subscriptionOptions(undefined, {
       onData: () => {
         void queryClient.invalidateQueries(trpc.memory.graph.pathFilter());
-        void queryClient.invalidateQueries(trpc.memory.search.pathFilter());
         void queryClient.invalidateQueries(trpc.memory.count.pathFilter());
         void queryClient.invalidateQueries(
           trpc.memory.associations.pathFilter(),
@@ -376,11 +371,6 @@ export function BrainGraph() {
       },
     }),
   );
-
-  const ftsMatchIds = useMemo(() => {
-    if (!ftsResults || ftsResults.length === 0) return null;
-    return new Set(ftsResults.map((r) => r.memory.id));
-  }, [ftsResults]);
 
   const brainSummary = useMemo(() => {
     if (!graphData) return null;
@@ -405,6 +395,7 @@ export function BrainGraph() {
   }, [graphData]);
 
   const selectedNodeId = selectedNode?.node.id ?? null;
+  selectedNodeIdRef.current = selectedNodeId;
 
   const { data: associations } = useQuery({
     ...trpc.memory.associations.queryOptions({
@@ -465,17 +456,20 @@ export function BrainGraph() {
 
     const filterSets: Set<string>[] = [];
 
-    if (hasSearch && ftsMatchIds) {
+    if (hasSearch) {
       const searchVisible = new Set<string>();
+      const searchLower = debouncedSearch.toLowerCase();
 
-      for (const id of ftsMatchIds) {
-        if (graph.hasNode(id)) {
-          searchVisible.add(id);
-          graph.forEachNeighbor(id, (neighbor) => {
+      graph.forEachNode((node, attrs) => {
+        if (node === BRAIN_NODE_ID) return;
+        const data = attrs.nodeData as MemoryNode;
+        if (data?.content.toLowerCase().includes(searchLower)) {
+          searchVisible.add(node);
+          graph.forEachNeighbor(node, (neighbor) => {
             searchVisible.add(neighbor);
           });
         }
-      }
+      });
 
       filterSets.push(searchVisible);
     }
@@ -541,7 +535,7 @@ export function BrainGraph() {
     visibleNodesRef.current = visibleNodes;
     visibleEdgesRef.current = visibleEdges;
     sigmaRef.current?.refresh();
-  }, [debouncedSearch, ftsMatchIds, activeNodeTypes, activeEdgeTypes]);
+  }, [debouncedSearch, activeNodeTypes, activeEdgeTypes]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -592,7 +586,11 @@ export function BrainGraph() {
       }
 
       // Clear selected node if it was removed
-      if (selectedNode && delta.removedNodeIds.includes(selectedNode.node.id)) {
+      const currentSelectedId = selectedNodeIdRef.current;
+      if (
+        currentSelectedId &&
+        delta.removedNodeIds.includes(currentSelectedId)
+      ) {
         setSelectedNode(null);
       }
 
@@ -837,7 +835,7 @@ export function BrainGraph() {
     return () => {
       cleanup();
     };
-  }, [graphData, cleanup, selectedNode]);
+  }, [graphData, cleanup]);
 
   useEffect(() => {
     const sigma = sigmaRef.current;
