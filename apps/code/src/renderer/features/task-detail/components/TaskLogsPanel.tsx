@@ -14,9 +14,11 @@ import { useSessionConnection } from "@features/sessions/hooks/useSessionConnect
 import { useSessionViewState } from "@features/sessions/hooks/useSessionViewState";
 import { useRestoreTask } from "@features/suspension/hooks/useRestoreTask";
 import { useSuspendedTaskIds } from "@features/suspension/hooks/useSuspendedTaskIds";
+import { BranchSwitchGuard } from "@features/task-detail/components/BranchSwitchGuard";
 import { WorkspaceSetupPrompt } from "@features/task-detail/components/WorkspaceSetupPrompt";
 import {
   useCreateWorkspace,
+  useWorkspace,
   useWorkspaceLoaded,
 } from "@features/workspace/hooks/useWorkspace";
 import { Box, Button, Flex, Spinner, Text } from "@radix-ui/themes";
@@ -31,6 +33,7 @@ interface TaskLogsPanelProps {
 
 export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
   const isWorkspaceLoaded = useWorkspaceLoaded();
+  const workspace = useWorkspace(taskId);
   const { isPending: isCreatingWorkspace } = useCreateWorkspace();
   const repoKey = getTaskRepository(task);
   const { folders } = useFolders();
@@ -138,7 +141,12 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
 
   return (
     <BackgroundWrapper>
-      <Flex direction="column" height="100%" width="100%">
+      <Flex
+        direction="column"
+        height="100%"
+        width="100%"
+        style={{ position: "relative" }}
+      >
         <Box style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary name="SessionView">
             <SessionView
@@ -168,6 +176,13 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
             />
           </ErrorBoundary>
         </Box>
+        {workspace && !isCloud && (
+          <BranchSwitchGuard
+            taskId={taskId}
+            branchName={workspace.branchName}
+            mode={workspace.mode}
+          />
+        )}
         {isCloud && (
           <Flex
             align="center"

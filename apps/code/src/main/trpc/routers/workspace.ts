@@ -2,6 +2,10 @@ import type { WorkspaceRepository } from "../../db/repositories/workspace-reposi
 import { container } from "../../di/container";
 import { MAIN_TOKENS } from "../../di/tokens";
 import {
+  checkDirtyStateInput,
+  checkDirtyStateOutput,
+  checkSwitchNeededInput,
+  checkSwitchNeededOutput,
   createWorkspaceInput,
   createWorkspaceOutput,
   deleteWorkspaceInput,
@@ -23,6 +27,8 @@ import {
   listGitWorktreesOutput,
   markActivityInput,
   markViewedInput,
+  switchResultSchema,
+  switchToTaskInput,
   togglePinInput,
   togglePinOutput,
   verifyWorkspaceInput,
@@ -56,6 +62,21 @@ export const workspaceRouter = router({
     .input(createWorkspaceInput)
     .output(createWorkspaceOutput)
     .mutation(({ input }) => getService().createWorkspace(input)),
+
+  checkDirtyState: publicProcedure
+    .input(checkDirtyStateInput)
+    .output(checkDirtyStateOutput)
+    .query(({ input }) => getService().checkDirtyState(input.repoPath)),
+
+  checkSwitchNeeded: publicProcedure
+    .input(checkSwitchNeededInput)
+    .output(checkSwitchNeededOutput)
+    .query(({ input }) => getService().checkSwitchNeeded(input.taskId)),
+
+  switchToTask: publicProcedure
+    .input(switchToTaskInput)
+    .output(switchResultSchema)
+    .mutation(({ input }) => getService().switchToTask(input.taskId)),
 
   delete: publicProcedure
     .input(deleteWorkspaceInput)

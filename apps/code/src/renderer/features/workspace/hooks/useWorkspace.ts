@@ -128,7 +128,7 @@ export function useEnsureWorkspace(): {
         folderId: "",
         folderPath: repoPath,
         mode,
-        branch: branch ?? undefined,
+        baseBranch: branch ?? undefined,
       });
 
       if (!result) {
@@ -167,7 +167,7 @@ export const workspaceApi = {
     folderId: string;
     folderPath: string;
     mode: WorkspaceMode;
-    branch?: string;
+    baseBranch?: string;
   }) {
     return trpcClient.workspace.create.mutate(options);
   },

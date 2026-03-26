@@ -42,6 +42,7 @@ interface SettingsStore {
   lastUsedInitialTaskMode: ExecutionMode;
   diffOpenMode: DiffOpenMode;
   hedgehogMode: boolean;
+  autoSwitchBranchOnTaskFocus: boolean;
   mcpAppsDisabledServers: string[];
   hints: Record<string, HintState>;
 
@@ -76,6 +77,7 @@ interface SettingsStore {
   setLastUsedInitialTaskMode: (mode: ExecutionMode) => void;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
   setHedgehogMode: (enabled: boolean) => void;
+  setAutoSwitchBranchOnTaskFocus: (enabled: boolean) => void;
   setMcpAppsDisabledServers: (servers: string[]) => void;
 }
 
@@ -105,6 +107,7 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedInitialTaskMode: "plan",
       diffOpenMode: "auto",
       hedgehogMode: false,
+      autoSwitchBranchOnTaskFocus: false,
       mcpAppsDisabledServers: [],
       hints: {},
 
@@ -177,6 +180,8 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ lastUsedInitialTaskMode: mode }),
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
       setHedgehogMode: (enabled) => set({ hedgehogMode: enabled }),
+      setAutoSwitchBranchOnTaskFocus: (enabled) =>
+        set({ autoSwitchBranchOnTaskFocus: enabled }),
       setMcpAppsDisabledServers: (servers) =>
         set({ mcpAppsDisabledServers: servers }),
     }),
@@ -207,6 +212,7 @@ export const useSettingsStore = create<SettingsStore>()(
         lastUsedInitialTaskMode: state.lastUsedInitialTaskMode,
         diffOpenMode: state.diffOpenMode,
         hedgehogMode: state.hedgehogMode,
+        autoSwitchBranchOnTaskFocus: state.autoSwitchBranchOnTaskFocus,
         hints: state.hints,
         mcpAppsDisabledServers: state.mcpAppsDisabledServers,
       }),

@@ -31,9 +31,11 @@ import type { ProcessTrackingService } from "../process-tracking/service";
 import type { ProvisioningService } from "../provisioning/service";
 import { getWorktreeLocation } from "../settingsStore";
 import type { SuspensionService } from "../suspension/service.js";
+import { generateTaskBranchName } from "./branch-name";
 import type {
   BranchChangedPayload,
   CreateWorkspaceInput,
+  SwitchResult,
   Workspace,
   WorkspaceErrorPayload,
   WorkspaceInfo,
@@ -41,18 +43,24 @@ import type {
   WorkspaceWarningPayload,
   WorktreeInfo,
 } from "./schemas";
+import { createWipCommit, unwindWipCommit } from "./wip-commit";
 
 const execFileAsync = promisify(execFile);
 
 type TaskAssociation =
-  | { taskId: string; folderId: string; mode: "local" }
+  | {
+      taskId: string;
+      folderId: string;
+      mode: "local";
+      targetBranch: string | null;
+    }
   | { taskId: string; folderId: string | null; mode: "cloud" }
   | {
       taskId: string;
       folderId: string;
       mode: "worktree";
       worktree: string;
-      branchName: string | null;
+      targetBranch: string | null;
     };
 
 async function hasAnyFiles(repoPath: string): Promise<boolean> {
@@ -157,7 +165,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         folderId: workspace.repositoryId,
         mode: "worktree",
         worktree: worktree.name,
-        branchName: null,
+        targetBranch: workspace.targetBranch ?? null,
       };
     }
 
@@ -165,6 +173,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       taskId,
       folderId: workspace.repositoryId,
       mode: "local",
+      targetBranch: workspace.targetBranch ?? null,
     };
   }
 
@@ -197,13 +206,14 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
           folderId: workspace.repositoryId,
           mode: "worktree",
           worktree: worktree.name,
-          branchName: null,
+          targetBranch: workspace.targetBranch ?? null,
         });
       } else {
         result.push({
           taskId: workspace.taskId,
           folderId: workspace.repositoryId,
           mode: "local",
+          targetBranch: workspace.targetBranch ?? null,
         });
       }
     }
@@ -252,7 +262,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       const folderPath = this.getFolderPath(assoc.folderId);
       if (!folderPath) continue;
       const derivedPath = deriveWorktreePath(folderPath, assoc.worktree);
-      if (derivedPath === worktreePath && assoc.branchName !== newBranch) {
+      if (derivedPath === worktreePath && assoc.targetBranch !== newBranch) {
         this.updateAssociationBranchName(assoc.taskId, newBranch);
         this.emit(WorkspaceServiceEvent.BranchChanged, {
           taskId: assoc.taskId,
@@ -280,7 +290,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         if (worktreePath !== repoPath) continue;
 
         const currentBranch = await getBranchFromPath(repoPath);
-        if (currentBranch !== null && currentBranch !== assoc.branchName) {
+        if (currentBranch !== null && currentBranch !== assoc.targetBranch) {
           this.updateAssociationBranchName(assoc.taskId, currentBranch);
           this.emit(WorkspaceServiceEvent.BranchChanged, {
             taskId: assoc.taskId,
@@ -308,9 +318,11 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   private updateAssociationBranchName(
-    _taskId: string,
-    _branchName: string,
-  ): void {}
+    taskId: string,
+    branchName: string,
+  ): void {
+    this.workspaceRepo.updateTargetBranch(taskId, branchName);
+  }
 
   private async getLocalWorktreePathIfExists(
     mainRepoPath: string,
@@ -331,6 +343,153 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       log.warn(`Error checking local worktree for ${mainRepoPath}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Check if a branch name belongs to a PostHog-managed workspace.
+   */
+  isManagedBranch(branchName: string): boolean {
+    return this.workspaceRepo.findByTargetBranch(branchName) !== null;
+  }
+
+  /**
+   * Check if a repo path has uncommitted changes and whether the current branch is managed.
+   */
+  async checkDirtyState(repoPath: string): Promise<{
+    dirty: boolean;
+    currentBranch: string | null;
+    managed: boolean;
+  }> {
+    const currentBranch = await getBranchFromPath(repoPath);
+    const git = createGitClient(repoPath);
+    const status = await git.status();
+    const dirty = !status.isClean();
+    const managed = currentBranch ? this.isManagedBranch(currentBranch) : false;
+    return { dirty, currentBranch, managed };
+  }
+
+  /**
+   * Read-only check: does focusing this task require a branch switch?
+   */
+  async checkSwitchNeeded(taskId: string): Promise<{
+    needsSwitch: boolean;
+    currentBranch: string | null;
+    targetBranch: string | null;
+  }> {
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
+    if (
+      !workspace?.targetBranch ||
+      workspace.mode !== "local" ||
+      !workspace.repositoryId
+    ) {
+      return {
+        needsSwitch: false,
+        currentBranch: null,
+        targetBranch: workspace?.targetBranch ?? null,
+      };
+    }
+
+    const folderPath = this.getFolderPath(workspace.repositoryId);
+    if (!folderPath) {
+      return {
+        needsSwitch: false,
+        currentBranch: null,
+        targetBranch: workspace.targetBranch,
+      };
+    }
+
+    const currentBranch = await getBranchFromPath(folderPath);
+    return {
+      needsSwitch: currentBranch !== workspace.targetBranch,
+      currentBranch: currentBranch ?? null,
+      targetBranch: workspace.targetBranch,
+    };
+  }
+
+  /**
+   * Switch the working tree to the target task's branch.
+   * Handles WIP commits for managed branches and blocks on dirty unmanaged branches.
+   */
+  async switchToTask(taskId: string): Promise<SwitchResult> {
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
+    if (!workspace || !workspace.targetBranch) {
+      return { status: "ok" };
+    }
+
+    if (workspace.mode !== "local") {
+      return { status: "ok" };
+    }
+
+    if (!workspace.repositoryId) {
+      return {
+        status: "error",
+        message: "No repository associated with workspace",
+      };
+    }
+
+    const folderPath = this.getFolderPath(workspace.repositoryId);
+    if (!folderPath) {
+      return { status: "error", message: "Workspace folder not found" };
+    }
+
+    const currentBranch = await getBranchFromPath(folderPath);
+    if (!currentBranch) {
+      return { status: "error", message: "Could not determine current branch" };
+    }
+
+    // Already on the right branch — just check for WIP to unwind
+    if (currentBranch === workspace.targetBranch) {
+      const restoredWip = await unwindWipCommit(folderPath);
+      return { status: "ok", restoredWip: restoredWip || undefined };
+    }
+
+    // Check if the working tree is dirty
+    const git = createGitClient(folderPath);
+    const status = await git.status();
+    const dirty = !status.isClean();
+
+    let wipCreated = false;
+
+    if (dirty) {
+      if (this.isManagedBranch(currentBranch)) {
+        // Find which task owns the current branch to tag the WIP
+        const currentWorkspace =
+          this.workspaceRepo.findByTargetBranch(currentBranch);
+        const currentTaskId = currentWorkspace?.taskId ?? taskId;
+        wipCreated = await createWipCommit(folderPath, currentTaskId);
+        log.info(
+          `Created WIP commit on ${currentBranch} for task ${currentTaskId}`,
+        );
+      } else {
+        return {
+          status: "blocked-dirty-unmanaged",
+          currentBranch,
+        };
+      }
+    }
+
+    // Checkout the target branch
+    const saga = new CreateOrSwitchBranchSaga();
+    const result = await saga.run({
+      baseDir: folderPath,
+      branchName: workspace.targetBranch,
+    });
+
+    if (!result.success) {
+      return {
+        status: "error",
+        message: `Could not switch to branch "${workspace.targetBranch}": ${result.error}`,
+      };
+    }
+
+    // Unwind any WIP commit on the target branch
+    const restoredWip = await unwindWipCommit(folderPath);
+
+    return {
+      status: "ok",
+      wipCreated: wipCreated || undefined,
+      restoredWip: restoredWip || undefined,
+    };
   }
 
   async createWorkspace(options: CreateWorkspaceInput): Promise<WorkspaceInfo> {
@@ -361,8 +520,10 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       mainRepoPath,
       folderPath,
       mode,
-      branch,
+      baseBranch: userBaseBranch,
       useExistingBranch,
+      taskNumber,
+      taskSlug,
     } = options;
 
     const existingWorkspace = await this.getWorkspaceInfo(taskId);
@@ -380,44 +541,59 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     const repository = this.repositoryRepo.findByPath(mainRepoPath);
     const repositoryId = repository?.id ?? null;
 
+    // Auto-generate branch name from task metadata
+    const targetBranch = generateTaskBranchName({
+      task_number: taskNumber ?? null,
+      slug: taskSlug ?? "",
+      id: taskId,
+    });
+
     if (mode === "cloud") {
       this.workspaceRepo.create({
         taskId,
         repositoryId,
         mode: "cloud",
+        targetBranch,
       });
 
       return {
         taskId,
         mode,
         worktree: null,
-        branchName: null,
+        branchName: targetBranch,
       };
     }
 
+    // Resolve the base branch to fork from (user selection or default)
+    const defaultBranch = await getDefaultBranch(
+      mode === "local" ? folderPath : mainRepoPath,
+    ).catch(() => "main");
+    const baseBranch = userBaseBranch ?? defaultBranch;
+
     if (mode === "local") {
-      if (branch) {
-        const currentBranch = await getCurrentBranch(folderPath);
-        if (currentBranch === branch) {
-          log.info(`Already on branch ${branch}, skipping checkout`);
+      const currentBranch = await getCurrentBranch(folderPath);
+      if (currentBranch === targetBranch) {
+        log.info(`Already on branch ${targetBranch}, skipping checkout`);
+      } else {
+        log.info(
+          `Creating/switching to branch ${targetBranch} for task ${taskId} (base: ${baseBranch})`,
+        );
+        const saga = new CreateOrSwitchBranchSaga();
+        const result = await saga.run({
+          baseDir: folderPath,
+          branchName: targetBranch,
+          baseBranch,
+        });
+        if (!result.success) {
+          const message = `Could not switch to branch "${targetBranch}". Please commit or stash your changes first.`;
+          log.error(message, result.error);
+          this.emitWorkspaceError(taskId, message);
+          throw new Error(message);
+        }
+        if (result.data.created) {
+          log.info(`Created and switched to new branch ${targetBranch}`);
         } else {
-          log.info(`Creating/switching to branch ${branch} for task ${taskId}`);
-          const saga = new CreateOrSwitchBranchSaga();
-          const result = await saga.run({
-            baseDir: folderPath,
-            branchName: branch,
-          });
-          if (!result.success) {
-            const message = `Could not switch to branch "${branch}". Please commit or stash your changes first.`;
-            log.error(message, result.error);
-            this.emitWorkspaceError(taskId, message);
-            throw new Error(message);
-          }
-          if (result.data.created) {
-            log.info(`Created and switched to new branch ${branch}`);
-          } else {
-            log.info(`Switched to existing branch ${branch}`);
-          }
+          log.info(`Switched to existing branch ${targetBranch}`);
         }
       }
 
@@ -425,14 +601,14 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         taskId,
         repositoryId,
         mode: "local",
+        targetBranch,
       });
 
-      const localBranch = await getBranchFromPath(folderPath);
       return {
         taskId,
         mode,
         worktree: null,
-        branchName: localBranch,
+        branchName: targetBranch,
       };
     }
 
@@ -446,11 +622,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     let worktree: WorktreeInfo;
 
     try {
-      const defaultBranch = await getDefaultBranch(mainRepoPath).catch(
-        () => "main",
-      );
-      const selectedBranch = branch ?? defaultBranch;
-      const isTrunkSelected = selectedBranch === defaultBranch;
+      const isTrunkSelected = baseBranch === defaultBranch;
 
       const onOutput = (data: string) => {
         this.provisioningService.emitOutput(taskId, data);
@@ -458,27 +630,27 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
 
       if (isTrunkSelected) {
         log.info(
-          `Trunk branch selected (${defaultBranch}), creating detached worktree`,
+          `Creating worktree from trunk (${baseBranch}) with branch ${targetBranch}`,
         );
         worktree = await worktreeManager.createWorktree({
-          baseBranch: defaultBranch,
+          baseBranch,
           onOutput,
         });
         log.info(
-          `Created detached worktree from trunk: ${worktree.worktreeName} at ${worktree.worktreePath}`,
+          `Created worktree from trunk: ${worktree.worktreeName} at ${worktree.worktreePath}`,
         );
       } else {
         log.info(
-          `Non-trunk branch selected (${selectedBranch}), attempting checkout`,
+          `Creating worktree from non-trunk base (${baseBranch}) with branch ${targetBranch}`,
         );
         try {
           worktree = await worktreeManager.createWorktreeForExistingBranch(
-            selectedBranch,
+            baseBranch,
             undefined,
             { onOutput },
           );
           log.info(
-            `Created worktree with branch checkout: ${worktree.worktreeName} at ${worktree.worktreePath} (branch: ${selectedBranch})`,
+            `Created worktree with branch checkout: ${worktree.worktreeName} at ${worktree.worktreePath} (base: ${baseBranch})`,
           );
         } catch (checkoutError) {
           const errorMessage =
@@ -487,10 +659,10 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
               : String(checkoutError);
           if (errorMessage.includes("is already used by worktree")) {
             log.info(
-              `Branch ${selectedBranch} is occupied, falling back to detached worktree`,
+              `Branch ${baseBranch} is occupied, falling back to detached worktree`,
             );
             worktree = await worktreeManager.createWorktree({
-              baseBranch: selectedBranch,
+              baseBranch,
               onOutput,
             });
             log.info(
@@ -526,6 +698,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       taskId,
       repositoryId,
       mode: "worktree",
+      targetBranch,
     });
 
     this.worktreeRepo.create({
@@ -579,7 +752,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         taskId,
         mainRepoPath,
         worktreePath,
-        association.branchName,
+        association.targetBranch,
       );
 
       const otherWorkspacesForFolder = this.getAllTaskAssociations().filter(
@@ -723,26 +896,17 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
       ? this.getFolderPath(association.folderId)
       : null;
     let worktreeInfo: WorktreeInfo | null = null;
-    let branchName: string | null = null;
+    const branchName = association.targetBranch;
 
-    if (association.mode === "worktree") {
-      if (folderPath) {
-        const worktreePath = deriveWorktreePath(
-          folderPath,
-          association.worktree,
-        );
-        const gitBranch = await getBranchFromPath(worktreePath);
-        branchName = gitBranch ?? association.branchName;
-        worktreeInfo = {
-          worktreePath,
-          worktreeName: association.worktree,
-          branchName,
-          baseBranch: "main",
-          createdAt: new Date().toISOString(),
-        };
-      }
-    } else if (association.mode === "local" && folderPath) {
-      branchName = await getBranchFromPath(folderPath);
+    if (association.mode === "worktree" && folderPath) {
+      const worktreePath = deriveWorktreePath(folderPath, association.worktree);
+      worktreeInfo = {
+        worktreePath,
+        worktreeName: association.worktree,
+        branchName,
+        baseBranch: "main",
+        createdAt: new Date().toISOString(),
+      };
     }
 
     return {
@@ -784,17 +948,6 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         worktreePath = deriveWorktreePath(folderPath, worktreeName);
       }
 
-      let branchName: string | null = null;
-      if (assoc.mode === "worktree" && worktreePath) {
-        const gitBranch = await getBranchFromPath(worktreePath);
-        branchName = gitBranch ?? assoc.branchName;
-      } else if (assoc.mode === "local") {
-        const localWorktreePath =
-          await this.getLocalWorktreePathIfExists(folderPath);
-        const branchPath = localWorktreePath ?? folderPath;
-        branchName = await getBranchFromPath(branchPath);
-      }
-
       workspaces[assoc.taskId] = {
         taskId: assoc.taskId,
         folderId: assoc.folderId,
@@ -802,7 +955,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         mode: assoc.mode,
         worktreePath,
         worktreeName,
-        branchName,
+        branchName: assoc.targetBranch,
         baseBranch: null,
         createdAt: new Date().toISOString(),
       };

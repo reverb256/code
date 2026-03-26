@@ -41,8 +41,10 @@ export const createWorkspaceInput = z
     folderId: z.string(),
     folderPath: z.string(),
     mode: workspaceModeSchema,
-    branch: z.string().optional(),
+    baseBranch: z.string().optional(),
     useExistingBranch: z.boolean().optional(),
+    taskNumber: z.number().nullable().optional(),
+    taskSlug: z.string().optional(),
   })
   .refine(
     (data) =>
@@ -213,7 +215,55 @@ export const getAllTaskTimestampsOutput = z.record(
   }),
 );
 
+// Switch result schemas
+export const switchResultOk = z.object({
+  status: z.literal("ok"),
+  wipCreated: z.boolean().optional(),
+  restoredWip: z.boolean().optional(),
+});
+
+export const switchResultError = z.object({
+  status: z.literal("error"),
+  message: z.string(),
+});
+
+export const switchResultBlocked = z.object({
+  status: z.literal("blocked-dirty-unmanaged"),
+  currentBranch: z.string(),
+});
+
+export const switchResultSchema = z.discriminatedUnion("status", [
+  switchResultOk,
+  switchResultError,
+  switchResultBlocked,
+]);
+
+export const switchToTaskInput = z.object({
+  taskId: z.string(),
+});
+
+export const checkSwitchNeededInput = z.object({
+  taskId: z.string(),
+});
+
+export const checkSwitchNeededOutput = z.object({
+  needsSwitch: z.boolean(),
+  currentBranch: z.string().nullable(),
+  targetBranch: z.string().nullable(),
+});
+
+export const checkDirtyStateInput = z.object({
+  repoPath: z.string(),
+});
+
+export const checkDirtyStateOutput = z.object({
+  dirty: z.boolean(),
+  currentBranch: z.string().nullable(),
+  managed: z.boolean(),
+});
+
 // Type exports
+export type SwitchResult = z.infer<typeof switchResultSchema>;
 export type WorkspaceMode = z.infer<typeof workspaceModeSchema>;
 export type WorktreeInfo = z.infer<typeof worktreeInfoSchema>;
 export type WorkspaceInfo = z.infer<typeof workspaceInfoSchema>;

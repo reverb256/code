@@ -12,6 +12,7 @@ export interface CreateWorkspaceData {
   taskId: string;
   repositoryId: string | null;
   mode: WorkspaceMode;
+  targetBranch?: string | null;
 }
 
 export interface IWorkspaceRepository {
@@ -27,6 +28,8 @@ export interface IWorkspaceRepository {
   updateLastViewedAt(taskId: string, lastViewedAt: string): void;
   updateLastActivityAt(taskId: string, lastActivityAt: string): void;
   updateMode(taskId: string, mode: WorkspaceMode): void;
+  updateTargetBranch(taskId: string, targetBranch: string | null): void;
+  findByTargetBranch(targetBranch: string): Workspace | null;
   deleteAll(): void;
 }
 
@@ -81,6 +84,7 @@ export class WorkspaceRepository implements IWorkspaceRepository {
       taskId: data.taskId,
       repositoryId: data.repositoryId,
       mode: data.mode,
+      targetBranch: data.targetBranch ?? null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -130,6 +134,24 @@ export class WorkspaceRepository implements IWorkspaceRepository {
       .set({ mode, updatedAt: now() })
       .where(byTaskId(taskId))
       .run();
+  }
+
+  updateTargetBranch(taskId: string, targetBranch: string | null): void {
+    this.db
+      .update(workspaces)
+      .set({ targetBranch, updatedAt: now() })
+      .where(byTaskId(taskId))
+      .run();
+  }
+
+  findByTargetBranch(targetBranch: string): Workspace | null {
+    return (
+      this.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.targetBranch, targetBranch))
+        .get() ?? null
+    );
   }
 
   deleteAll(): void {

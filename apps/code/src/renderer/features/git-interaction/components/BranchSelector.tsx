@@ -40,14 +40,16 @@ export function BranchSelector({
   const { actions } = useGitInteractionStore();
 
   const isCloudMode = workspaceMode === "cloud";
-  const isSelectionOnly = workspaceMode === "worktree" || isCloudMode;
-  const displayedBranch = isSelectionOnly ? selectedBranch : currentBranch;
+  const isSelectionOnly = !!onBranchSelect;
+  const displayedBranch = isSelectionOnly
+    ? (selectedBranch ?? defaultBranch)
+    : currentBranch;
 
   useEffect(() => {
-    if (isSelectionOnly && defaultBranch && !selectedBranch && onBranchSelect) {
+    if (defaultBranch && !selectedBranch && onBranchSelect) {
       onBranchSelect(defaultBranch);
     }
-  }, [isSelectionOnly, defaultBranch, selectedBranch, onBranchSelect]);
+  }, [defaultBranch, selectedBranch, onBranchSelect]);
 
   const { data: localBranches = [] } = useQuery(
     trpc.git.getAllBranches.queryOptions(

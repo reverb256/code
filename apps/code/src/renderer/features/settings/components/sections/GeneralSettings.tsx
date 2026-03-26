@@ -106,6 +106,7 @@ export function GeneralSettings() {
     diffOpenMode,
     sendMessagesWith,
     hedgehogMode,
+    autoSwitchBranchOnTaskFocus,
     setDesktopNotifications,
     setDockBadgeNotifications,
     setDockBounceNotifications,
@@ -116,6 +117,7 @@ export function GeneralSettings() {
     setDiffOpenMode,
     setSendMessagesWith,
     setHedgehogMode,
+    setAutoSwitchBranchOnTaskFocus,
   } = useSettingsStore();
 
   // Sync toggle off if the user denied notification permission at the OS level
@@ -645,6 +647,20 @@ export function GeneralSettings() {
         <Switch
           checked={preventSleepWhileRunning}
           onCheckedChange={handlePreventSleepChange}
+          size="1"
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Auto-switch branches on task focus"
+        description="Automatically switch git branches when focusing a task, saving uncommitted changes as a WIP commit"
+        noBorder
+      >
+        <Switch
+          checked={autoSwitchBranchOnTaskFocus}
+          onCheckedChange={(checked) =>
+            setAutoSwitchBranchOnTaskFocus(checked === true)
+          }
           size="1"
         />
       </SettingRow>

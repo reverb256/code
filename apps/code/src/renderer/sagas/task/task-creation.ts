@@ -26,11 +26,11 @@ async function generateTaskTitle(
   taskId: string,
   description: string,
   posthogClient: PostHogAPIClient,
-): Promise<void> {
-  if (!description.trim()) return;
+): Promise<string | null> {
+  if (!description.trim()) return null;
 
   const title = await generateTitle(description);
-  if (!title) return;
+  if (!title) return null;
 
   try {
     await posthogClient.updateTask(taskId, { title });
@@ -42,8 +42,10 @@ async function generateTaskTitle(
 
     // Sync to session store so notifications use the updated title
     getSessionService().updateSessionTaskTitle(taskId, title);
+    return title;
   } catch (error) {
     log.error("Failed to save task title", { taskId, error });
+    return title;
   }
 }
 
@@ -112,9 +114,14 @@ export class TaskCreationSaga extends Saga<
         )
       : await this.createTask(input);
 
-    // Fire-and-forget: generate a proper LLM title for new tasks
+    // Generate a proper LLM title for new tasks (awaited so we can use it for the branch name)
+    let generatedTitle: string | null = null;
     if (!taskId) {
-      generateTaskTitle(task.id, input.content ?? "", this.deps.posthogClient);
+      generatedTitle = await generateTaskTitle(
+        task.id,
+        input.content ?? "",
+        this.deps.posthogClient,
+      );
     }
 
     const repoKey = getTaskRepository(task);
@@ -139,7 +146,19 @@ export class TaskCreationSaga extends Saga<
       latestRunLogUrl: task.latest_run?.log_url,
     });
 
-    // Step 4: Create workspace if we have a directory
+    // Step 4: Check for dirty state before creating workspace (new local tasks only)
+    if (repoPath && !input.taskId && workspaceMode === "local") {
+      const dirtyState = await this.readOnlyStep("dirty_check", () =>
+        trpcClient.workspace.checkDirtyState.query({ repoPath }),
+      );
+      if (dirtyState.dirty && !dirtyState.managed) {
+        throw new Error(
+          `You have uncommitted changes on ${dirtyState.currentBranch ?? "the current branch"}. Please commit or stash them before creating a new task.`,
+        );
+      }
+    }
+
+    // Step 5: Create workspace if we have a directory
     let workspace: Workspace | null = null;
     const branch = input.branch ?? task.latest_run?.branch ?? null;
     const hasProvisioning =
@@ -168,7 +187,9 @@ export class TaskCreationSaga extends Saga<
             folderId: folder.id,
             folderPath: repoPath,
             mode: workspaceMode,
-            branch: branch ?? undefined,
+            baseBranch: branch ?? undefined,
+            taskNumber: task.task_number ?? undefined,
+            taskSlug: generatedTitle || task.title || task.slug,
           });
         },
         rollback: async () => {
@@ -202,7 +223,7 @@ export class TaskCreationSaga extends Saga<
             folderId: "",
             folderPath: "",
             mode: "cloud",
-            branch: branch ?? undefined,
+            baseBranch: branch ?? undefined,
           });
         },
         rollback: async () => {

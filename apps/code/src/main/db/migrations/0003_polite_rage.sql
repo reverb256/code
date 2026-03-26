@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `target_branch` text;

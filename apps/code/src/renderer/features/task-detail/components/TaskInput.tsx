@@ -153,10 +153,7 @@ export function TaskInput() {
   const currentReasoningLevel =
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
 
-  const branchForTaskCreation =
-    effectiveWorkspaceMode === "worktree" || effectiveWorkspaceMode === "cloud"
-      ? selectedBranch
-      : null;
+  const branchForTaskCreation = selectedBranch ?? defaultBranch;
 
   const { isCreatingTask, canSubmit, handleSubmit } = useTaskCreation({
     editorRef,

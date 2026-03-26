@@ -38,6 +38,7 @@ export function createMockWorkspaceRepository(): MockWorkspaceRepository {
         taskId: data.taskId,
         repositoryId: data.repositoryId,
         mode: data.mode,
+        targetBranch: data.targetBranch ?? null,
         pinnedAt: null,
         lastViewedAt: null,
         lastActivityAt: null,
@@ -66,6 +67,13 @@ export function createMockWorkspaceRepository(): MockWorkspaceRepository {
     updateLastViewedAt: () => {},
     updateLastActivityAt: () => {},
     updateMode: () => {},
+    updateTargetBranch: () => {},
+    findByTargetBranch: (targetBranch: string) => {
+      for (const w of workspaces.values()) {
+        if (w.targetBranch === targetBranch) return { ...w };
+      }
+      return null;
+    },
     deleteAll: () => {
       workspaces.clear();
       taskIndex.clear();
