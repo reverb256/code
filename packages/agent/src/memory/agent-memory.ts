@@ -126,6 +126,26 @@ Memories that were recalled:
 Conversation:
 {CONVERSATION}`;
 
+const RELATIONSHIP_DISCOVERY_PROMPT = `You are analyzing a knowledge graph of memories. Given the following memories, identify meaningful relationships between them.
+
+For each relationship you find, specify:
+- source_id: the ID of the first memory
+- target_id: the ID of the related memory
+- relation_type: one of "related_to" (general connection), "updates" (source refines or supersedes target), "contradicts" (source conflicts with target)
+- weight: 0.3-0.9 (how strong is the relationship — 0.3 = weak thematic link, 0.9 = very strong direct connection)
+
+Rules:
+- Only include relationships that are genuinely meaningful (shared topic, causal link, contradiction)
+- Do NOT link memories just because they share common words like "the" or "user"
+- Prefer fewer high-quality relationships over many weak ones
+- Each memory can appear in multiple relationships
+
+Memories:
+{MEMORIES}
+
+Respond with ONLY a JSON array. Empty array [] if no meaningful relationships exist.
+Example: [{"source_id": "abc", "target_id": "def", "relation_type": "related_to", "weight": 0.6}]`;
+
 // ── Manager ─────────────────────────────────────────────────────────────────
 
 export class AgentMemoryManager {
@@ -406,8 +426,14 @@ export class AgentMemoryManager {
   async flush(): Promise<Memory[]> {
     this.stopPeriodicDistillation();
 
+    // Reinforce edges between co-recalled memories
+    this.reinforceCoRecalled();
+
     // Run session reflection before final distillation
     await this.reflect();
+
+    // Discover relationships for poorly-connected memories
+    await this.discoverRelationships();
 
     const minChunk = this.config.distillMinChunkSize;
     this.config.distillMinChunkSize = 0;
@@ -500,6 +526,161 @@ export class AgentMemoryManager {
     } catch (error) {
       this.logger.error("Session reflection failed", { error });
     }
+  }
+
+  // ── Co-Recall Reinforcement ────────────────────────────────────────────
+
+  private reinforceCoRecalled(): number {
+    if (this.recalledMemories.length < 2) return 0;
+
+    const ids = this.recalledMemories.map((m) => m.id);
+    const existing = this.svc.getAssociationsBetween(ids);
+
+    // Build a set of existing edges for fast lookup
+    const edgeKey = (a: string, b: string) =>
+      a < b ? `${a}:${b}` : `${b}:${a}`;
+    const existingEdges = new Map<string, number>();
+    for (const assoc of existing) {
+      existingEdges.set(edgeKey(assoc.sourceId, assoc.targetId), assoc.weight);
+    }
+
+    let created = 0;
+    let reinforced = 0;
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = edgeKey(ids[i], ids[j]);
+        const currentWeight = existingEdges.get(key);
+
+        if (currentWeight !== undefined) {
+          // Reinforce: boost weight by 0.1, cap at 1.0
+          const newWeight = Math.min(1, currentWeight + 0.1);
+          if (newWeight > currentWeight) {
+            this.svc.link(ids[i], {
+              targetId: ids[j],
+              relationType: RelationType.RelatedTo,
+              weight: newWeight,
+            });
+            reinforced++;
+          }
+        } else {
+          // Create new weak edge from co-recall
+          this.svc.link(ids[i], {
+            targetId: ids[j],
+            relationType: RelationType.RelatedTo,
+            weight: 0.2,
+          });
+          created++;
+        }
+      }
+    }
+
+    if (created > 0 || reinforced > 0) {
+      this.logger.info("Co-recall reinforcement complete", {
+        created,
+        reinforced,
+        recalledCount: ids.length,
+      });
+    }
+
+    return created + reinforced;
+  }
+
+  // ── LLM Relationship Discovery ───────────────────────────────────────────
+
+  private async discoverRelationships(): Promise<number> {
+    const weaklyConnected = this.svc.getWeaklyConnected(1, 40);
+    if (weaklyConnected.length < 2) {
+      this.logger.debug("Too few weakly-connected memories for discovery");
+      return 0;
+    }
+
+    const model = this.config.llm?.model ?? DEFAULT_EXTRACTION_MODEL;
+    const batchSize = 20;
+    let totalCreated = 0;
+
+    for (let offset = 0; offset < weaklyConnected.length; offset += batchSize) {
+      const batch = weaklyConnected.slice(offset, offset + batchSize);
+      if (batch.length < 2) break;
+
+      const memoriesBlock = batch
+        .map(
+          (m) =>
+            `- id: ${m.id} | type: ${m.memoryType} | importance: ${m.importance.toFixed(2)} | content: ${m.content}`,
+        )
+        .join("\n");
+
+      const prompt = RELATIONSHIP_DISCOVERY_PROMPT.replace(
+        "{MEMORIES}",
+        memoriesBlock,
+      );
+
+      try {
+        const response = await this.anthropic.messages.create({
+          model,
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        });
+
+        const text = response.content
+          .filter(
+            (block): block is Anthropic.TextBlock => block.type === "text",
+          )
+          .map((block) => block.text)
+          .join("");
+
+        const match = text.match(/\[[\s\S]*\]/);
+        if (!match) continue;
+
+        const relationships = JSON.parse(match[0]) as Array<{
+          source_id?: string;
+          target_id?: string;
+          relation_type?: string;
+          weight?: number;
+        }>;
+        if (!Array.isArray(relationships)) continue;
+
+        const validIds = new Set(batch.map((m) => m.id));
+
+        for (const rel of relationships) {
+          if (
+            typeof rel.source_id !== "string" ||
+            typeof rel.target_id !== "string" ||
+            !validIds.has(rel.source_id) ||
+            !validIds.has(rel.target_id) ||
+            rel.source_id === rel.target_id
+          )
+            continue;
+
+          const relationType =
+            rel.relation_type === "updates"
+              ? RelationType.Updates
+              : rel.relation_type === "contradicts"
+                ? RelationType.Contradicts
+                : RelationType.RelatedTo;
+
+          const weight = Math.max(0.1, Math.min(0.9, rel.weight ?? 0.5));
+
+          this.svc.link(rel.source_id, {
+            targetId: rel.target_id,
+            relationType,
+            weight,
+          });
+          totalCreated++;
+        }
+      } catch (error) {
+        this.logger.error("Relationship discovery batch failed", { error });
+      }
+    }
+
+    if (totalCreated > 0) {
+      this.logger.info("Relationship discovery complete", {
+        analyzed: weaklyConnected.length,
+        created: totalCreated,
+      });
+    }
+
+    return totalCreated;
   }
 
   // ── Scoring & Selection ─────────────────────────────────────────────────

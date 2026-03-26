@@ -291,6 +291,23 @@ export class AgentMemoryRepository {
     ).map(rowToMemory);
   }
 
+  getWeaklyConnected(maxAssociations = 1, limit = 50): Memory[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT m.*,
+                  (SELECT COUNT(*) FROM associations a
+                   WHERE a.source_id = m.id OR a.target_id = m.id) AS assoc_count
+           FROM memories m
+           WHERE m.forgotten = 0
+           HAVING assoc_count <= ?
+           ORDER BY m.importance DESC
+           LIMIT ?`,
+        )
+        .all(maxAssociations, limit) as Record<string, unknown>[]
+    ).map(rowToMemory);
+  }
+
   getHighImportance(threshold = 0.7, limit = 50): Memory[] {
     return (
       this.db

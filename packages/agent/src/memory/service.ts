@@ -108,6 +108,10 @@ export class AgentMemoryService {
     return this.repo.getHighImportance(threshold, limit);
   }
 
+  getWeaklyConnected(maxAssociations?: number, limit?: number): Memory[] {
+    return this.repo.getWeaklyConnected(maxAssociations, limit);
+  }
+
   getSorted(
     order: SortOrder,
     options?: { memoryType?: MemoryType; limit?: number },
