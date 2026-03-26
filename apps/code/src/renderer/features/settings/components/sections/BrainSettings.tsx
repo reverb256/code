@@ -342,6 +342,20 @@ export function BrainSettings() {
           {maintenanceMutation.isPending ? "Running..." : "Maintain"}
         </Button>
       </SettingRow>
+      <SettingRow
+        label="Prune weak edges"
+        description="Remove low-weight 'related_to' edges to declutter the graph"
+      >
+        <Button
+          variant="soft"
+          color="orange"
+          size="1"
+          disabled={pruneEdgesMutation.isPending}
+          onClick={() => pruneEdgesMutation.mutate({})}
+        >
+          {pruneEdgesMutation.isPending ? "Pruning..." : "Prune edges"}
+        </Button>
+      </SettingRow>
 
       <Box className="border-gray-6 border-t pt-4">
         <Text size="2" weight="medium" className="mb-3 block">
