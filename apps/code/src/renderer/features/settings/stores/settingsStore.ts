@@ -26,6 +26,8 @@ interface SettingsStore {
   lastUsedAdapter: AgentAdapter;
   lastUsedModel: string | null;
   lastUsedEnvironments: Record<string, string>;
+  lastUsedDirectory: string;
+  lastUsedCloudRepository: string | null;
   desktopNotifications: boolean;
   dockBadgeNotifications: boolean;
   dockBounceNotifications: boolean;
@@ -62,6 +64,8 @@ interface SettingsStore {
     environmentId: string | null,
   ) => void;
   getLastUsedEnvironment: (repoPath: string) => string | null;
+  setLastUsedDirectory: (directory: string) => void;
+  setLastUsedCloudRepository: (repository: string | null) => void;
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
   setDockBounceNotifications: (enabled: boolean) => void;
@@ -89,6 +93,8 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedAdapter: "claude",
       lastUsedModel: null,
       lastUsedEnvironments: {},
+      lastUsedDirectory: "",
+      lastUsedCloudRepository: null,
       desktopNotifications: true,
       dockBadgeNotifications: true,
       dockBounceNotifications: false,
@@ -155,6 +161,10 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
       getLastUsedEnvironment: (repoPath) =>
         get().lastUsedEnvironments[repoPath] ?? null,
+      setLastUsedDirectory: (directory) =>
+        set({ lastUsedDirectory: directory }),
+      setLastUsedCloudRepository: (repository) =>
+        set({ lastUsedCloudRepository: repository }),
       setDesktopNotifications: (enabled) =>
         set({ desktopNotifications: enabled }),
       setDockBadgeNotifications: (enabled) =>
@@ -191,6 +201,8 @@ export const useSettingsStore = create<SettingsStore>()(
         lastUsedAdapter: state.lastUsedAdapter,
         lastUsedModel: state.lastUsedModel,
         lastUsedEnvironments: state.lastUsedEnvironments,
+        lastUsedDirectory: state.lastUsedDirectory,
+        lastUsedCloudRepository: state.lastUsedCloudRepository,
         desktopNotifications: state.desktopNotifications,
         dockBadgeNotifications: state.dockBadgeNotifications,
         dockBounceNotifications: state.dockBounceNotifications,

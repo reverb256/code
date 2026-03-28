@@ -61,6 +61,10 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
     getLastUsedEnvironment,
     defaultInitialTaskMode,
     lastUsedInitialTaskMode,
+    lastUsedDirectory: persistedDirectory,
+    setLastUsedDirectory: persistDirectory,
+    lastUsedCloudRepository: persistedCloudRepository,
+    setLastUsedCloudRepository: persistCloudRepository,
   } = useSettingsStore();
 
   const editorRef = useRef<MessageEditorHandle>(null);
@@ -78,7 +82,15 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
     null,
   );
 
-  const [selectedDirectory, setSelectedDirectory] = useState("");
+  const [selectedDirectory, setSelectedDirectoryRaw] =
+    useState(persistedDirectory);
+  const setSelectedDirectory = useCallback(
+    (dir: string) => {
+      setSelectedDirectoryRaw(dir);
+      persistDirectory(dir);
+    },
+    [persistDirectory],
+  );
   const workspaceMode = lastUsedWorkspaceMode || "local";
   const adapter = lastUsedAdapter;
 
@@ -86,7 +98,7 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
     if (!selectedDirectory && mostRecentRepo?.path) {
       setSelectedDirectory(mostRecentRepo.path);
     }
-  }, [mostRecentRepo?.path, selectedDirectory]);
+  }, [mostRecentRepo?.path, selectedDirectory, setSelectedDirectory]);
 
   const setWorkspaceMode = (mode: WorkspaceMode) => {
     setLastUsedWorkspaceMode(mode);
@@ -99,8 +111,15 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
 
   const { githubIntegration, repositories, isLoadingRepos } =
     useRepositoryIntegration();
-  const [selectedRepository, setSelectedRepository] = useState<string | null>(
-    null,
+  const [selectedRepository, setSelectedRepositoryRaw] = useState<
+    string | null
+  >(persistedCloudRepository);
+  const setSelectedRepository = useCallback(
+    (repo: string | null) => {
+      setSelectedRepositoryRaw(repo);
+      persistCloudRepository(repo);
+    },
+    [persistCloudRepository],
   );
   const { currentBranch, branchLoading, defaultBranch } =
     useGitQueries(selectedDirectory);
@@ -164,7 +183,7 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
         setSelectedDirectory(folder.path);
       }
     }
-  }, [view.folderId, folders]);
+  }, [view.folderId, folders, setSelectedDirectory]);
 
   const effectiveRepoPath =
     workspaceMode === "cloud" ? selectedRepository : selectedDirectory;
