@@ -11,7 +11,6 @@ import { container } from "./di/container";
 import { MAIN_TOKENS } from "./di/tokens";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
-import type { AutomationService } from "./services/automation/service";
 import type { ExternalAppsService } from "./services/external-apps/service";
 import type { NotificationService } from "./services/notification/service";
 import type { OAuthService } from "./services/oauth/service";
@@ -44,7 +43,6 @@ function initializeServices(): void {
   container.get<TaskLinkService>(MAIN_TOKENS.TaskLinkService);
   container.get<ExternalAppsService>(MAIN_TOKENS.ExternalAppsService);
   container.get<PosthogPluginService>(MAIN_TOKENS.PosthogPluginService);
-  container.get<AutomationService>(MAIN_TOKENS.AutomationService);
 
   // Initialize workspace branch watcher for live branch rename detection
   const workspaceService = container.get<WorkspaceService>(

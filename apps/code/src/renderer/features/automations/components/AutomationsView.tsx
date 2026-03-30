@@ -1,4 +1,3 @@
-import { FolderPicker } from "@features/folder-picker/components/FolderPicker";
 import { GitHubRepoPicker } from "@features/folder-picker/components/GitHubRepoPicker";
 import { useRepositoryIntegration } from "@hooks/useIntegrations";
 import { useSetHeaderContent } from "@hooks/useSetHeaderContent";
@@ -24,15 +23,19 @@ import {
 } from "@radix-ui/themes";
 import type { Automation } from "@shared/types/automations";
 import { useEffect, useMemo, useState } from "react";
-import { runAutomationNow } from "../hooks/useAutomationScheduler";
-import { useAutomationStore } from "../stores/automationStore";
+import {
+  useAutomations,
+  useCreateAutomation,
+  useDeleteAutomation,
+  useRunAutomationNow,
+  useUpdateAutomation,
+} from "../hooks/useAutomations";
 import { AUTOMATION_TEMPLATES } from "../templates";
 import { formatAutomationDateTime, getLocalTimezone } from "../utils/schedule";
 
 interface AutomationDraft {
   name: string;
   prompt: string;
-  repoPath: string;
   repository: string | null;
   githubIntegrationId: number | null;
   scheduleTime: string;
@@ -47,7 +50,6 @@ function toDraft(
     return {
       name: "",
       prompt: "",
-      repoPath: "",
       repository: null,
       githubIntegrationId: githubIntegrationId ?? null,
       scheduleTime: "09:00",
@@ -58,8 +60,7 @@ function toDraft(
   return {
     name: automation.name,
     prompt: automation.prompt,
-    repoPath: automation.repoPath,
-    repository: automation.repository ?? null,
+    repository: automation.repository ?? automation.repoPath ?? null,
     githubIntegrationId:
       automation.githubIntegrationId ?? githubIntegrationId ?? null,
     scheduleTime: automation.scheduleTime,
@@ -92,6 +93,14 @@ function AutomationStatusBadge({ automation }: { automation: Automation }) {
     );
   }
 
+  if (automation.lastRunStatus === "running") {
+    return (
+      <Badge size="1" variant="soft" color="blue">
+        Running
+      </Badge>
+    );
+  }
+
   return (
     <Badge size="1" variant="soft" color="blue">
       Active
@@ -100,31 +109,28 @@ function AutomationStatusBadge({ automation }: { automation: Automation }) {
 }
 
 export function AutomationsView() {
-  const automations = useAutomationStore((state) => state.automations);
-  const selectedAutomationId = useAutomationStore(
-    (state) => state.selectedAutomationId,
-  );
-  const runningAutomationIds = useAutomationStore(
-    (state) => state.runningAutomationIds,
-  );
-  const setSelectedAutomationId = useAutomationStore(
-    (state) => state.setSelectedAutomationId,
-  );
-  const createAutomation = useAutomationStore(
-    (state) => state.createAutomation,
-  );
-  const updateAutomation = useAutomationStore(
-    (state) => state.updateAutomation,
-  );
-  const deleteAutomation = useAutomationStore(
-    (state) => state.deleteAutomation,
-  );
-  const toggleAutomation = useAutomationStore(
-    (state) => state.toggleAutomation,
-  );
-
+  const { automations, isLoading } = useAutomations();
+  const createAutomation = useCreateAutomation();
+  const updateAutomation = useUpdateAutomation();
+  const deleteAutomation = useDeleteAutomation();
+  const runAutomationNow = useRunAutomationNow();
   const { githubIntegration, repositories, isLoadingRepos } =
     useRepositoryIntegration();
+
+  const [selectedAutomationId, setSelectedAutomationId] = useState<
+    string | null
+  >(null);
+  const [isCreating, setIsCreating] = useState(true);
+  const [draft, setDraft] = useState<AutomationDraft>(() =>
+    toDraft(null, githubIntegration?.id),
+  );
+  const [pendingRunAutomationId, setPendingRunAutomationId] = useState<
+    string | null
+  >(null);
+  const [pendingToggleAutomationId, setPendingToggleAutomationId] = useState<
+    string | null
+  >(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const selectedAutomation = useMemo(
     () =>
@@ -134,13 +140,41 @@ export function AutomationsView() {
     [automations, selectedAutomationId],
   );
 
-  const [isCreating, setIsCreating] = useState(automations.length === 0);
-  const [draft, setDraft] = useState<AutomationDraft>(() =>
-    toDraft(null, githubIntegration?.id),
-  );
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (automations.length === 0) {
+      setIsCreating(true);
+      setSelectedAutomationId(null);
+      return;
+    }
+
+    if (isCreating) {
+      return;
+    }
+
+    if (!selectedAutomationId) {
+      setSelectedAutomationId(automations[0]?.id ?? null);
+      return;
+    }
+
+    const stillExists = automations.some(
+      (automation) => automation.id === selectedAutomationId,
+    );
+    if (!stillExists) {
+      setSelectedAutomationId(automations[0]?.id ?? null);
+    }
+  }, [automations, isCreating, isLoading, selectedAutomationId]);
 
   useEffect(() => {
-    if (!isCreating && selectedAutomation) {
+    if (isCreating) {
+      setDraft(toDraft(null, githubIntegration?.id));
+      return;
+    }
+
+    if (selectedAutomation) {
       setDraft(toDraft(selectedAutomation, githubIntegration?.id));
     }
   }, [isCreating, selectedAutomation, githubIntegration?.id]);
@@ -164,16 +198,23 @@ export function AutomationsView() {
 
   useSetHeaderContent(headerContent);
 
+  const timezone = getLocalTimezone();
+  const enabledCount = automations.filter(
+    (automation) => automation.enabled,
+  ).length;
+  const hasGitHubIntegration =
+    Boolean(githubIntegration) && repositories.length > 0;
+
   const openCreate = () => {
+    setFormError(null);
     setIsCreating(true);
     setSelectedAutomationId(null);
-    setDraft(toDraft(null, githubIntegration?.id));
   };
 
   const openExisting = (automation: Automation) => {
+    setFormError(null);
     setIsCreating(false);
     setSelectedAutomationId(automation.id);
-    setDraft(toDraft(automation, githubIntegration?.id));
   };
 
   const applyTemplate = (templateId: string) => {
@@ -192,53 +233,101 @@ export function AutomationsView() {
     }));
   };
 
-  const handleSave = () => {
-    if (!draft.name.trim() || !draft.prompt.trim() || !draft.repoPath.trim()) {
+  const handleSave = async () => {
+    if (!draft.name.trim() || !draft.prompt.trim() || !draft.repository) {
       return;
     }
 
-    if (isCreating || !selectedAutomation) {
-      const automationId = createAutomation({
-        name: draft.name,
-        prompt: draft.prompt,
-        repoPath: draft.repoPath,
-        repository: draft.repository,
-        githubIntegrationId: draft.githubIntegrationId,
-        scheduleTime: draft.scheduleTime,
-        templateId: draft.templateId,
-      });
-      const created = useAutomationStore
-        .getState()
-        .automations.find((item) => item.id === automationId);
-      if (created) {
-        openExisting(created);
+    setFormError(null);
+
+    try {
+      if (isCreating || !selectedAutomation) {
+        const created = await createAutomation.mutateAsync({
+          name: draft.name.trim(),
+          prompt: draft.prompt.trim(),
+          repository: draft.repository,
+          github_integration: draft.githubIntegrationId,
+          schedule_time: draft.scheduleTime,
+          timezone,
+          template_id: draft.templateId,
+          enabled: true,
+        });
+        setIsCreating(false);
+        setSelectedAutomationId(created.id);
+        return;
       }
-      return;
-    }
 
-    updateAutomation(selectedAutomation.id, {
-      name: draft.name,
-      prompt: draft.prompt,
-      repoPath: draft.repoPath,
-      repository: draft.repository,
-      githubIntegrationId: draft.githubIntegrationId,
-      scheduleTime: draft.scheduleTime,
-      templateId: draft.templateId,
-    });
+      await updateAutomation.mutateAsync({
+        automationId: selectedAutomation.id,
+        updates: {
+          name: draft.name.trim(),
+          prompt: draft.prompt.trim(),
+          repository: draft.repository,
+          github_integration: draft.githubIntegrationId,
+          schedule_time: draft.scheduleTime,
+          timezone,
+          template_id: draft.templateId,
+        },
+      });
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Failed to save automation.",
+      );
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedAutomation) {
       return;
     }
-    deleteAutomation(selectedAutomation.id);
+
+    await deleteAutomation.mutateAsync(selectedAutomation.id);
     openCreate();
   };
 
-  const enabledCount = automations.filter(
-    (automation) => automation.enabled,
-  ).length;
-  const timezone = getLocalTimezone();
+  const handleToggleEnabled = async (enabled: boolean) => {
+    if (!selectedAutomation) {
+      return;
+    }
+
+    setPendingToggleAutomationId(selectedAutomation.id);
+    setFormError(null);
+    try {
+      await updateAutomation.mutateAsync({
+        automationId: selectedAutomation.id,
+        updates: { enabled },
+      });
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update automation state.",
+      );
+    } finally {
+      setPendingToggleAutomationId(null);
+    }
+  };
+
+  const handleRunNow = async () => {
+    if (!selectedAutomation) {
+      return;
+    }
+
+    setPendingRunAutomationId(selectedAutomation.id);
+    setFormError(null);
+    try {
+      await runAutomationNow.mutateAsync(selectedAutomation.id);
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Failed to run automation.",
+      );
+    } finally {
+      setPendingRunAutomationId(null);
+    }
+  };
+
+  const isSaving = createAutomation.isPending || updateAutomation.isPending;
+  const isDeleting = deleteAutomation.isPending;
 
   return (
     <Flex direction="column" height="100%" className="overflow-hidden">
@@ -266,7 +355,19 @@ export function AutomationsView() {
         <Box width="360px" className="border-gray-6 border-r">
           <ScrollArea type="auto" style={{ height: "100%" }}>
             <Flex direction="column" gap="2" p="3">
-              {automations.length === 0 ? (
+              {isLoading ? (
+                <Flex
+                  direction="column"
+                  align="center"
+                  justify="center"
+                  gap="3"
+                  className="rounded-lg border border-gray-6 border-dashed p-6"
+                >
+                  <Text size="2" className="font-mono text-[12px] text-gray-10">
+                    Loading automations...
+                  </Text>
+                </Flex>
+              ) : automations.length === 0 ? (
                 <Flex
                   direction="column"
                   align="center"
@@ -322,7 +423,7 @@ export function AutomationsView() {
                           size="1"
                           className="truncate font-mono text-[11px] text-gray-10"
                         >
-                          {automation.repoPath}
+                          {automation.repository ?? automation.repoPath}
                         </Text>
                       </Flex>
                     </button>
@@ -343,8 +444,8 @@ export function AutomationsView() {
                     : (selectedAutomation?.name ?? "Automation")}
                 </Text>
                 <Text size="1" className="font-mono text-[11px] text-gray-10">
-                  Runs locally on this app while it is open. Missed runs are
-                  skipped.
+                  Runs in the cloud sandbox on schedule, even while Twig is
+                  closed.
                 </Text>
               </Flex>
 
@@ -437,40 +538,41 @@ export function AutomationsView() {
                     weight="medium"
                     className="font-mono text-[11px]"
                   >
-                    Local context
-                  </Text>
-                  <FolderPicker
-                    value={draft.repoPath}
-                    onChange={(repoPath) =>
-                      setDraft((current) => ({ ...current, repoPath }))
-                    }
-                    placeholder="Select repository..."
-                    size="2"
-                  />
-                </Flex>
-
-                <Flex direction="column" gap="2">
-                  <Text
-                    size="1"
-                    weight="medium"
-                    className="font-mono text-[11px]"
-                  >
                     GitHub repository
                   </Text>
-                  <GitHubRepoPicker
-                    value={draft.repository}
-                    onChange={(repository) =>
-                      setDraft((current) => ({
-                        ...current,
-                        repository,
-                        githubIntegrationId: githubIntegration?.id ?? null,
-                      }))
-                    }
-                    repositories={repositories}
-                    isLoading={isLoadingRepos}
-                    placeholder="Optional"
-                    size="2"
-                  />
+                  {hasGitHubIntegration ? (
+                    <GitHubRepoPicker
+                      value={draft.repository}
+                      onChange={(repository) =>
+                        setDraft((current) => ({
+                          ...current,
+                          repository,
+                          githubIntegrationId: githubIntegration?.id ?? null,
+                        }))
+                      }
+                      repositories={repositories}
+                      isLoading={isLoadingRepos}
+                      placeholder="Select repository..."
+                      size="2"
+                    />
+                  ) : (
+                    <TextField.Root
+                      value={draft.repository ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          repository: event.target.value.trim() || null,
+                          githubIntegrationId: null,
+                        }))
+                      }
+                      placeholder="posthog/posthog"
+                    />
+                  )}
+                  <Text size="1" className="font-mono text-[11px] text-gray-10">
+                    {hasGitHubIntegration
+                      ? "Each automation runs against a single GitHub repository in the cloud sandbox."
+                      : "No GitHub integration is connected. You can still enter org/repo for local testing, but the sandbox will not clone the repository until GitHub is connected."}
+                  </Text>
                 </Flex>
 
                 <Flex gap="4" wrap="wrap">
@@ -558,13 +660,24 @@ export function AutomationsView() {
                 ) : null}
               </Flex>
 
+              {formError ? (
+                <Box className="rounded-lg border border-red-6 bg-red-2 px-3 py-2">
+                  <Text size="1" className="font-mono text-[11px] text-red-11">
+                    {formError}
+                  </Text>
+                </Box>
+              ) : null}
+
               <Flex align="center" gap="3" wrap="wrap">
                 {!isCreating && selectedAutomation ? (
                   <>
                     <Switch
                       checked={selectedAutomation.enabled}
-                      onCheckedChange={() =>
-                        toggleAutomation(selectedAutomation.id)
+                      disabled={
+                        pendingToggleAutomationId === selectedAutomation.id
+                      }
+                      onCheckedChange={(enabled) =>
+                        void handleToggleEnabled(enabled)
                       }
                     />
                     <Text
@@ -580,27 +693,31 @@ export function AutomationsView() {
                   <Button
                     color="gray"
                     variant="soft"
-                    disabled={runningAutomationIds.includes(
-                      selectedAutomation.id,
-                    )}
-                    onClick={() => void runAutomationNow(selectedAutomation.id)}
+                    disabled={pendingRunAutomationId === selectedAutomation.id}
+                    onClick={() => void handleRunNow()}
                   >
                     <Play size={12} />
                     Run now
                   </Button>
                 ) : null}
                 {!isCreating && selectedAutomation ? (
-                  <Button color="red" variant="soft" onClick={handleDelete}>
+                  <Button
+                    color="red"
+                    variant="soft"
+                    disabled={isDeleting}
+                    onClick={() => void handleDelete()}
+                  >
                     <Trash size={12} />
                     Delete
                   </Button>
                 ) : null}
                 <Button
-                  onClick={handleSave}
+                  onClick={() => void handleSave()}
                   disabled={
                     !draft.name.trim() ||
                     !draft.prompt.trim() ||
-                    !draft.repoPath.trim()
+                    !draft.repository ||
+                    isSaving
                   }
                 >
                   <FloppyDisk size={12} />

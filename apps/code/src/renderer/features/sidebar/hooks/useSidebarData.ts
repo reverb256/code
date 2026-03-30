@@ -155,7 +155,10 @@ export function useSidebarData({
   const allTasks = useMemo(
     () =>
       rawTasks.filter(
-        (task) => !archivedTaskIds.has(task.id) && !!workspaces?.[task.id],
+        (task) =>
+          !archivedTaskIds.has(task.id) &&
+          (Boolean(workspaces?.[task.id]) ||
+            task.latest_run?.environment === "cloud"),
       ),
     [rawTasks, archivedTaskIds, workspaces],
   );

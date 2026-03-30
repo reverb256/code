@@ -15,12 +15,14 @@ import { useSessionViewState } from "@features/sessions/hooks/useSessionViewStat
 import { useRestoreTask } from "@features/suspension/hooks/useRestoreTask";
 import { useSuspendedTaskIds } from "@features/suspension/hooks/useSuspendedTaskIds";
 import { WorkspaceSetupPrompt } from "@features/task-detail/components/WorkspaceSetupPrompt";
+import { useCloudRunState } from "@features/task-detail/hooks/useCloudRunState";
 import {
   useCreateWorkspace,
   useWorkspaceLoaded,
 } from "@features/workspace/hooks/useWorkspace";
 import { Box, Button, Flex, Spinner, Text } from "@radix-ui/themes";
 import type { Task } from "@shared/types";
+import type { AcpMessage } from "@shared/types/session-events";
 import { getTaskRepository } from "@utils/repository";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -30,9 +32,11 @@ interface TaskLogsPanelProps {
 }
 
 export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
+  const { freshTask } = useCloudRunState(taskId, task);
+  const effectiveTask = freshTask;
   const isWorkspaceLoaded = useWorkspaceLoaded();
   const { isPending: isCreatingWorkspace } = useCreateWorkspace();
-  const repoKey = getTaskRepository(task);
+  const repoKey = getTaskRepository(effectiveTask);
   const { folders } = useFolders();
   const hasDirectoryMapping = repoKey
     ? folders.some((f) => f.remoteUrl === repoKey)
@@ -61,11 +65,11 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
     cloudBranch,
     errorTitle,
     errorMessage,
-  } = useSessionViewState(taskId, task);
+  } = useSessionViewState(taskId, effectiveTask);
 
   useSessionConnection({
     taskId,
-    task,
+    task: effectiveTask,
     session,
     repoPath,
     isCloud,
@@ -78,19 +82,24 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
     handleRetry,
     handleNewSession,
     handleBashCommand,
-  } = useSessionCallbacks({ taskId, task, session, repoPath });
+  } = useSessionCallbacks({ taskId, task: effectiveTask, session, repoPath });
 
-  const cloudStage = session?.cloudStage ?? null;
-  const cloudOutput = session?.cloudOutput ?? null;
-  const cloudErrorMessage = session?.cloudErrorMessage ?? null;
+  const cloudStage =
+    session?.cloudStage ?? effectiveTask.latest_run?.stage ?? null;
+  const cloudOutput =
+    session?.cloudOutput ?? effectiveTask.latest_run?.output ?? null;
+  const cloudErrorMessage =
+    session?.cloudErrorMessage ??
+    effectiveTask.latest_run?.error_message ??
+    null;
   const prUrl =
     isCloud && cloudOutput?.pr_url ? (cloudOutput.pr_url as string) : null;
   const slackThreadUrl =
-    typeof task.latest_run?.state?.slack_thread_url === "string"
-      ? task.latest_run.state.slack_thread_url
+    typeof effectiveTask.latest_run?.state?.slack_thread_url === "string"
+      ? effectiveTask.latest_run.state.slack_thread_url
       : undefined;
 
-  const cloudRepo = isCloud ? (task.repository ?? null) : null;
+  const cloudRepo = isCloud ? (effectiveTask.repository ?? null) : null;
   const { data: prFiles } = useCloudPrChangedFiles(prUrl);
   const { data: branchFiles } = useCloudBranchChangedFiles(
     !prUrl ? cloudRepo : null,
@@ -106,6 +115,57 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
       linesRemoved: files.reduce((sum, f) => sum + (f.linesRemoved ?? 0), 0),
     };
   }, [isCloud, prUrl, prFiles, branchFiles]);
+
+  const displayEvents = useMemo(() => {
+    if (events.length > 0) return events;
+    if (!isCloud || isCloudRunNotTerminal) return events;
+
+    const fallbackMarkdown = buildCloudFallbackMarkdown({
+      prompt: effectiveTask.description,
+      repository: effectiveTask.repository ?? null,
+      branch: effectiveTask.latest_run?.branch ?? cloudBranch ?? null,
+      stage: cloudStage,
+      status: cloudStatus ?? effectiveTask.latest_run?.status ?? null,
+      output: cloudOutput,
+      errorMessage: cloudErrorMessage,
+    });
+
+    if (!fallbackMarkdown) return events;
+
+    const startedAt = effectiveTask.latest_run?.created_at
+      ? new Date(effectiveTask.latest_run.created_at).getTime()
+      : Date.now();
+    const syntheticEvents: AcpMessage[] = [];
+
+    if (effectiveTask.description?.trim()) {
+      syntheticEvents.push(
+        createSyntheticUserPromptEvent(
+          effectiveTask.description.trim(),
+          startedAt - 1,
+        ),
+      );
+    }
+
+    syntheticEvents.push(
+      createSyntheticAgentMessageEvent(fallbackMarkdown, startedAt),
+    );
+
+    return syntheticEvents;
+  }, [
+    events,
+    isCloud,
+    isCloudRunNotTerminal,
+    effectiveTask.description,
+    effectiveTask.repository,
+    effectiveTask.latest_run?.branch,
+    effectiveTask.latest_run?.created_at,
+    effectiveTask.latest_run?.status,
+    cloudBranch,
+    cloudStage,
+    cloudStatus,
+    cloudOutput,
+    cloudErrorMessage,
+  ]);
 
   useEffect(() => {
     requestFocus(taskId);
@@ -130,7 +190,7 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
     return (
       <BackgroundWrapper>
         <Box height="100%" width="100%">
-          <WorkspaceSetupPrompt taskId={taskId} task={task} />
+          <WorkspaceSetupPrompt taskId={taskId} task={effectiveTask} />
         </Box>
       </BackgroundWrapper>
     );
@@ -142,7 +202,7 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
         <Box style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary name="SessionView">
             <SessionView
-              events={events}
+              events={displayEvents}
               taskId={taskId}
               isRunning={isRunning}
               isSuspended={isSuspended}
@@ -215,4 +275,169 @@ export function TaskLogsPanel({ taskId, task }: TaskLogsPanelProps) {
       </Flex>
     </BackgroundWrapper>
   );
+}
+
+function createSyntheticUserPromptEvent(text: string, ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id: ts,
+      method: "session/prompt",
+      params: {
+        prompt: [{ type: "text", text }],
+      },
+    },
+  };
+}
+
+function createSyntheticAgentMessageEvent(
+  text: string,
+  ts: number,
+): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "agent_message",
+          content: { type: "text", text },
+        },
+      },
+    },
+  };
+}
+
+function buildCloudFallbackMarkdown({
+  prompt,
+  repository,
+  branch,
+  stage,
+  status,
+  output,
+  errorMessage,
+}: {
+  prompt?: string | null;
+  repository?: string | null;
+  branch?: string | null;
+  stage?: string | null;
+  status?: string | null;
+  output?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+}): string | null {
+  const sections: string[] = [
+    "No transcript was recorded for this cloud run, so this view is showing the persisted run output instead.",
+  ];
+
+  const naturalLanguageOutput = findNaturalLanguageOutput(output);
+  if (naturalLanguageOutput) {
+    sections.push(naturalLanguageOutput);
+  }
+
+  if (errorMessage) {
+    sections.push(`**Run error**\n\n${errorMessage}`);
+  }
+
+  const metadata = [
+    status ? `- Status: \`${status}\`` : null,
+    stage ? `- Stage: \`${stage}\`` : null,
+    repository ? `- Repository: \`${repository}\`` : null,
+    branch ? `- Branch: \`${branch}\`` : null,
+    readString(output, "pr_url")
+      ? `- Pull request: ${readString(output, "pr_url")}`
+      : null,
+    readString(output, "commit_sha")
+      ? `- Commit: \`${readString(output, "commit_sha")}\``
+      : null,
+  ].filter(Boolean);
+
+  if (metadata.length > 0) {
+    sections.push(`**Run metadata**\n\n${metadata.join("\n")}`);
+  }
+
+  const structuredOutput = buildStructuredOutputBlock(
+    output,
+    naturalLanguageOutput,
+  );
+  if (structuredOutput) {
+    sections.push(structuredOutput);
+  }
+
+  if (sections.length === 1 && prompt?.trim()) {
+    return null;
+  }
+
+  return sections.join("\n\n");
+}
+
+function findNaturalLanguageOutput(
+  output: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!output) return null;
+
+  const candidateKeys = [
+    "summary",
+    "message",
+    "result",
+    "response",
+    "content",
+    "text",
+    "final_output",
+  ] as const;
+
+  for (const key of candidateKeys) {
+    const value = output[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function buildStructuredOutputBlock(
+  output: Record<string, unknown> | null | undefined,
+  naturalLanguageOutput: string | null,
+): string | null {
+  if (!output || Object.keys(output).length === 0) return null;
+
+  const filteredEntries = Object.entries(output).filter(([key, value]) => {
+    if (value == null) return false;
+    if (
+      naturalLanguageOutput &&
+      [
+        "summary",
+        "message",
+        "result",
+        "response",
+        "content",
+        "text",
+        "final_output",
+      ].includes(key) &&
+      value === naturalLanguageOutput
+    ) {
+      return false;
+    }
+    return !["pr_url", "commit_sha"].includes(key);
+  });
+
+  if (filteredEntries.length === 0) return null;
+
+  return `**Structured output**\n\n\`\`\`json\n${JSON.stringify(
+    Object.fromEntries(filteredEntries),
+    null,
+    2,
+  )}\n\`\`\``;
+}
+
+function readString(
+  output: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null {
+  const value = output?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
 }

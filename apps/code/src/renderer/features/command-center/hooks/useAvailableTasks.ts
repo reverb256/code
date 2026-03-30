@@ -17,7 +17,8 @@ export function useAvailableTasks(): Task[] {
       (task) =>
         !assignedIds.has(task.id) &&
         !archivedTaskIds.has(task.id) &&
-        workspaces?.[task.id],
+        (Boolean(workspaces?.[task.id]) ||
+          task.latest_run?.environment === "cloud"),
     );
   }, [tasks, cells, archivedTaskIds, workspaces]);
 }

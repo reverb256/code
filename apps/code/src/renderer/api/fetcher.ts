@@ -8,6 +8,22 @@ export const buildApiFetcher: (config: {
 }) => Parameters<typeof createApiClient>[0] = (config) => {
   let currentToken = config.apiToken;
 
+  const formatErrorResponse = async (response: Response): Promise<string> => {
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("application/json")) {
+      const errorResponse = await response.json().catch(() => ({}));
+      return `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`;
+    }
+
+    const bodyText = await response.text().catch(() => "");
+    const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 200);
+
+    return `Failed request: [${response.status}] ${response.statusText}${
+      preview ? ` ${preview}` : ""
+    }`;
+  };
+
   const makeRequest = async (
     input: Parameters<Parameters<typeof createApiClient>[0]["fetch"]>[0],
     token: string,
@@ -66,18 +82,12 @@ export const buildApiFetcher: (config: {
           response = await makeRequest(input, currentToken);
         } catch {
           // Token refresh failed - throw the original 401 error
-          const errorResponse = await response.json();
-          throw new Error(
-            `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`,
-          );
+          throw new Error(await formatErrorResponse(response));
         }
       }
 
       if (!response.ok) {
-        const errorResponse = await response.json();
-        throw new Error(
-          `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`,
-        );
+        throw new Error(await formatErrorResponse(response));
       }
 
       return response;

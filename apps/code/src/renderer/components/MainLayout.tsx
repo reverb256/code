@@ -5,7 +5,6 @@ import { KeyboardShortcutsSheet } from "@components/KeyboardShortcutsSheet";
 
 import { ArchivedTasksView } from "@features/archive/components/ArchivedTasksView";
 import { AutomationsView } from "@features/automations/components/AutomationsView";
-import { useAutomationScheduler } from "@features/automations/hooks/useAutomationScheduler";
 import { CommandMenu } from "@features/command/components/CommandMenu";
 import { CommandCenterView } from "@features/command-center/components/CommandCenterView";
 import { InboxView } from "@features/inbox/components/InboxView";
@@ -44,7 +43,6 @@ export function MainLayout() {
 
   useIntegrations();
   useTaskDeepLink();
-  useAutomationScheduler();
 
   useEffect(() => {
     if (tasks) {

@@ -1,5 +1,5 @@
 import { DotsCircleSpinner } from "@components/DotsCircleSpinner";
-import { useAutomationStore } from "@features/automations/stores/automationStore";
+import { useAutomations } from "@features/automations/hooks/useAutomations";
 import { useCommandCenterStore } from "@features/command-center/stores/commandCenterStore";
 import { useInboxReports } from "@features/inbox/hooks/useInboxReports";
 import {
@@ -70,10 +70,10 @@ function SidebarMenuComponent() {
   const commandCenterActiveCount = commandCenterCells.filter(
     (taskId) => taskId != null,
   ).length;
-  const automationEnabledCount = useAutomationStore(
-    (state) =>
-      state.automations.filter((automation) => automation.enabled).length,
-  );
+  const { automations = [] } = useAutomations();
+  const automationEnabledCount = automations.filter(
+    (automation) => automation.enabled,
+  ).length;
 
   const previousTaskIdRef = useRef<string | null>(null);
 

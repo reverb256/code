@@ -50,6 +50,25 @@ export interface ExternalDataSource {
   schemas?: ExternalDataSourceSchema[] | string;
 }
 
+export interface TaskAutomationApi {
+  id: string;
+  name: string;
+  prompt: string;
+  repository: string;
+  github_integration?: number | null;
+  schedule_time: string;
+  timezone: string;
+  template_id?: string | null;
+  enabled: boolean;
+  last_run_at?: string | null;
+  last_run_status?: "success" | "failed" | "running" | null;
+  last_task_id?: string | null;
+  last_task_run_id?: string | null;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -382,6 +401,139 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
+  async listTaskAutomations(): Promise<TaskAutomationApi[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_automations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch task automations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as
+      | { results?: TaskAutomationApi[] }
+      | TaskAutomationApi[];
+
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async createTaskAutomation(input: {
+    name: string;
+    prompt: string;
+    repository: string;
+    github_integration?: number | null;
+    schedule_time: string;
+    timezone: string;
+    template_id?: string | null;
+    enabled?: boolean;
+  }): Promise<TaskAutomationApi> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_automations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify(input),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ??
+          `Failed to create task automation: ${response.statusText}`,
+      );
+    }
+
+    return (await response.json()) as TaskAutomationApi;
+  }
+
+  async updateTaskAutomation(
+    automationId: string,
+    input: Partial<{
+      name: string;
+      prompt: string;
+      repository: string;
+      github_integration: number | null;
+      schedule_time: string;
+      timezone: string;
+      template_id: string | null;
+      enabled: boolean;
+    }>,
+  ): Promise<TaskAutomationApi> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_automations/${automationId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify(input),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ??
+          `Failed to update task automation: ${response.statusText}`,
+      );
+    }
+
+    return (await response.json()) as TaskAutomationApi;
+  }
+
+  async deleteTaskAutomation(automationId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_automations/${automationId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to delete task automation: ${response.statusText}`,
+      );
+    }
+  }
+
+  async runTaskAutomationNow(automationId: string): Promise<TaskAutomationApi> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_automations/${automationId}/run_now/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({}),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ??
+          `Failed to run task automation: ${response.statusText}`,
+      );
+    }
+
+    return (await response.json()) as TaskAutomationApi;
+  }
+
   async getTask(taskId: string) {
     const teamId = await this.getTeamId();
     const data = await this.api.get(`/api/projects/{project_id}/tasks/{id}/`, {
@@ -700,12 +852,12 @@ export class PostHogAPIClient {
 
   async getIntegrationsForProject(projectId: number) {
     const url = new URL(
-      `${this.api.baseUrl}/api/environments/${projectId}/integrations/`,
+      `${this.api.baseUrl}/api/projects/${projectId}/integrations/`,
     );
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
-      path: `/api/environments/${projectId}/integrations/`,
+      path: `/api/projects/${projectId}/integrations/`,
     });
 
     if (!response.ok) {
@@ -722,13 +874,13 @@ export class PostHogAPIClient {
   ): Promise<{ branches: string[]; defaultBranch: string | null }> {
     const teamId = await this.getTeamId();
     const url = new URL(
-      `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/github_branches/`,
+      `${this.api.baseUrl}/api/projects/${teamId}/integrations/${integrationId}/github_branches/`,
     );
     url.searchParams.set("repo", repo);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
-      path: `/api/environments/${teamId}/integrations/${integrationId}/github_branches/`,
+      path: `/api/projects/${teamId}/integrations/${integrationId}/github_branches/`,
     });
 
     if (!response.ok) {
@@ -749,12 +901,12 @@ export class PostHogAPIClient {
   ): Promise<string[]> {
     const teamId = await this.getTeamId();
     const url = new URL(
-      `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/github_repos/`,
+      `${this.api.baseUrl}/api/projects/${teamId}/integrations/${integrationId}/github_repos/`,
     );
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
-      path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/`,
+      path: `/api/projects/${teamId}/integrations/${integrationId}/github_repos/`,
     });
 
     if (!response.ok) {
