@@ -19,7 +19,8 @@ import {
   useGithubBranches,
   useRepositoryIntegration,
 } from "@hooks/useIntegrations";
-import { Flex } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
+import { useAuthStore } from "@renderer/features/auth/stores/authStore";
 import { useTRPC } from "@renderer/trpc/client";
 import { useNavigationStore } from "@stores/navigationStore";
 import { useQuery } from "@tanstack/react-query";
@@ -33,6 +34,7 @@ import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 const DOT_FILL = "var(--gray-6)";
 
 export function TaskInput() {
+  const { cloudRegion } = useAuthStore();
   const trpcReact = useTRPC();
   const { view } = useNavigationStore();
   const { data: mostRecentRepo } = useQuery(
@@ -375,6 +377,17 @@ export function TaskInput() {
                 onChange={setSelectedEnvironment}
                 disabled={isCreatingTask}
               />
+            )}
+            {cloudRegion === "dev" && (
+              <Flex align="center" gap="1" className="shrink-0">
+                <span
+                  className="inline-block h-2 w-2 rounded-full bg-orange-9"
+                  aria-hidden
+                />
+                <Text size="1" color="orange" weight="medium">
+                  Dev
+                </Text>
+              </Flex>
             )}
           </Flex>
 
