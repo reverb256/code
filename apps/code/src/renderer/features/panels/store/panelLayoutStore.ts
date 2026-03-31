@@ -1,3 +1,4 @@
+import { useReviewStore } from "@features/code-review/stores/reviewStore";
 import { useSettingsStore } from "@features/settings/stores/settingsStore";
 import { ANALYTICS_EVENTS } from "@shared/types/analytics";
 import { track } from "@utils/analytics";
@@ -11,11 +12,9 @@ import {
   addNewTabToPanel,
   applyCleanupWithFallback,
   createCloudDiffTabId,
-  createDiffTabId,
   createFileTabId,
   generatePanelId,
   getCloudDiffTabIdsForFile,
-  getDiffTabIdsForFile,
   getLeafPanel,
   getSplitConfig,
   selectNextTabAfterClose,
@@ -80,12 +79,7 @@ export interface PanelLayoutStore {
     filePath: string,
     asPreview?: boolean,
   ) => void;
-  openDiffByMode: (
-    taskId: string,
-    filePath: string,
-    status?: string,
-    asPreview?: boolean,
-  ) => void;
+  openReview: (taskId: string, scrollToFile?: string) => void;
   openCloudDiffByMode: (
     taskId: string,
     filePath: string,
@@ -157,6 +151,14 @@ function createDefaultPanelTree(): PanelNode {
           id: DEFAULT_TAB_IDS.LOGS,
           label: "Chat",
           data: { type: "logs" },
+          component: null,
+          closeable: false,
+          draggable: true,
+        },
+        {
+          id: DEFAULT_TAB_IDS.REVIEW,
+          label: "Review",
+          data: { type: "review" as const },
           component: null,
           closeable: false,
           draggable: true,
@@ -459,10 +461,12 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         });
       },
 
-      openDiffByMode: (taskId, filePath, status, asPreview = true) => {
-        const tabId = createDiffTabId(filePath, status);
-        set((state) => openTabByDiffMode(state, taskId, tabId, asPreview));
-        trackDiffViewed(taskId, filePath, status);
+      openReview: (taskId, scrollToFile) => {
+        set((state) => openTab(state, taskId, "review", false));
+        if (scrollToFile) {
+          useReviewStore.getState().setScrollTarget(scrollToFile);
+          trackDiffViewed(taskId, scrollToFile);
+        }
       },
 
       openCloudDiffByMode: (taskId, filePath, status, asPreview = true) => {
@@ -612,7 +616,6 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
         const tabIds = [
           createFileTabId(filePath),
-          ...getDiffTabIdsForFile(filePath),
           ...getCloudDiffTabIdsForFile(filePath),
         ];
 
@@ -628,10 +631,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         const layout = get().taskLayouts[taskId];
         if (!layout) return;
 
-        const tabIds = [
-          ...getDiffTabIdsForFile(filePath),
-          ...getCloudDiffTabIdsForFile(filePath),
-        ];
+        const tabIds = getCloudDiffTabIdsForFile(filePath);
 
         for (const tabId of tabIds) {
           const tabLocation = findTabInTree(layout.panelTree, tabId);

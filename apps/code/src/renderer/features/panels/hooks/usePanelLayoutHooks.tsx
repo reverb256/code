@@ -85,7 +85,7 @@ export function useTabInjection(
     () =>
       tabs.map((tab) => {
         let updatedData = tab.data;
-        if (tab.data.type === "file" || tab.data.type === "diff") {
+        if (tab.data.type === "file") {
           const rp = tab.data.relativePath;
           const absolutePath = isAbsolutePath(rp) ? rp : `${repoPath}/${rp}`;
           updatedData = {
@@ -97,7 +97,7 @@ export function useTabInjection(
 
         let icon = tab.icon;
         if (!icon) {
-          if (tab.data.type === "file" || tab.data.type === "diff") {
+          if (tab.data.type === "file") {
             const filename = tab.data.relativePath.split("/").pop() || "";
             icon = <FileIcon filename={filename} size={14} />;
           } else if (tab.data.type === "terminal") {

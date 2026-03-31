@@ -1,18 +1,17 @@
 import { FileIcon } from "@components/ui/FileIcon";
 import { PanelMessage } from "@components/ui/PanelMessage";
 import { Tooltip } from "@components/ui/Tooltip";
+import { useReviewStore } from "@features/code-review/stores/reviewStore";
 import { useExternalApps } from "@features/external-apps/hooks/useExternalApps";
 import {
   useCloudBranchChangedFiles,
   useCloudPrChangedFiles,
   useGitQueries,
 } from "@features/git-interaction/hooks/useGitQueries";
+import { getStatusIndicator } from "@features/git-interaction/utils/gitFileStatus";
 import { updateGitCacheFromSnapshot } from "@features/git-interaction/utils/updateGitCache";
 import { usePanelLayoutStore } from "@features/panels/store/panelLayoutStore";
-import {
-  isCloudDiffTabActiveInTree,
-  isDiffTabActiveInTree,
-} from "@features/panels/store/panelStoreHelpers";
+import { isCloudDiffTabActiveInTree } from "@features/panels/store/panelStoreHelpers";
 import { usePendingPermissionsForTask } from "@features/sessions/stores/sessionStore";
 import { useCwd } from "@features/sidebar/hooks/useCwd";
 import { useCloudRunState } from "@features/task-detail/hooks/useCloudRunState";
@@ -36,7 +35,7 @@ import {
 } from "@radix-ui/themes";
 import { useWorkspace } from "@renderer/features/workspace/hooks/useWorkspace";
 import { trpcClient } from "@renderer/trpc/client";
-import type { ChangedFile, GitFileStatus, Task } from "@shared/types";
+import type { ChangedFile, Task } from "@shared/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { showMessageBox } from "@utils/dialog";
 import { handleExternalAppAction } from "@utils/handleExternalAppAction";
@@ -54,26 +53,6 @@ interface ChangedFileItemProps {
   repoPath: string;
   isActive: boolean;
   mainRepoPath?: string;
-}
-
-function getStatusIndicator(status: GitFileStatus): {
-  label: string;
-  fullLabel: string;
-  color: "green" | "orange" | "red" | "blue" | "gray";
-} {
-  switch (status) {
-    case "added":
-    case "untracked":
-      return { label: "A", fullLabel: "Added", color: "green" };
-    case "deleted":
-      return { label: "D", fullLabel: "Deleted", color: "red" };
-    case "modified":
-      return { label: "M", fullLabel: "Modified", color: "orange" };
-    case "renamed":
-      return { label: "R", fullLabel: "Renamed", color: "blue" };
-    default:
-      return { label: "?", fullLabel: "Unknown", color: "gray" };
-  }
 }
 
 function getDiscardInfo(
@@ -121,10 +100,7 @@ function ChangedFileItem({
   isActive,
   mainRepoPath,
 }: ChangedFileItemProps) {
-  const openDiffByMode = usePanelLayoutStore((state) => state.openDiffByMode);
-  const closeDiffTabsForFile = usePanelLayoutStore(
-    (state) => state.closeDiffTabsForFile,
-  );
+  const openReview = usePanelLayoutStore((state) => state.openReview);
   const queryClient = useQueryClient();
   const { detectedApps } = useExternalApps();
   const workspace = useWorkspace(taskId);
@@ -140,11 +116,11 @@ function ChangedFileItem({
   const indicator = getStatusIndicator(file.status);
 
   const handleClick = () => {
-    openDiffByMode(taskId, file.path, file.status);
+    openReview(taskId, file.path);
   };
 
   const handleDoubleClick = () => {
-    openDiffByMode(taskId, file.path, file.status, false);
+    openReview(taskId, file.path);
   };
 
   const workspaceContext = {
@@ -210,8 +186,6 @@ function ChangedFileItem({
       filePath: file.originalPath ?? file.path,
       fileStatus: file.status,
     });
-
-    closeDiffTabsForFile(taskId, file.path);
 
     if (discardResult.state) {
       updateGitCacheFromSnapshot(queryClient, repoPath, discardResult.state);
@@ -625,31 +599,25 @@ export function ChangesPanel({ taskId, task }: ChangesPanelProps) {
 function LocalChangesPanel({ taskId, task: _task }: ChangesPanelProps) {
   const workspace = useWorkspace(taskId);
   const repoPath = useCwd(taskId);
-  const layout = usePanelLayoutStore((state) => state.getLayout(taskId));
-  const openDiffByMode = usePanelLayoutStore((state) => state.openDiffByMode);
+  const openReview = usePanelLayoutStore((state) => state.openReview);
+  const activeFilePath = useReviewStore((s) => s.activeFilePath);
   const pendingPermissions = usePendingPermissionsForTask(taskId);
   const hasPendingPermissions = pendingPermissions.size > 0;
 
   const { changedFiles, changesLoading: isLoading } = useGitQueries(repoPath);
 
-  const getActiveIndex = useCallback((): number => {
-    if (!layout) return -1;
-    return changedFiles.findIndex((file) =>
-      isDiffTabActiveInTree(layout.panelTree, file.path, file.status),
-    );
-  }, [layout, changedFiles]);
+  const activeIndex = changedFiles.findIndex((f) => f.path === activeFilePath);
 
   const handleKeyNavigation = useCallback(
     (direction: "up" | "down") => {
       if (changedFiles.length === 0) return;
 
-      const currentIndex = getActiveIndex();
       const startIndex =
-        currentIndex === -1
+        activeIndex === -1
           ? direction === "down"
             ? -1
             : changedFiles.length
-          : currentIndex;
+          : activeIndex;
       const newIndex =
         direction === "up"
           ? Math.max(0, startIndex - 1)
@@ -657,10 +625,10 @@ function LocalChangesPanel({ taskId, task: _task }: ChangesPanelProps) {
 
       const file = changedFiles[newIndex];
       if (file) {
-        openDiffByMode(taskId, file.path, file.status);
+        openReview(taskId, file.path);
       }
     },
-    [changedFiles, getActiveIndex, openDiffByMode, taskId],
+    [changedFiles, activeIndex, openReview, taskId],
   );
 
   useHotkeys(
@@ -675,11 +643,6 @@ function LocalChangesPanel({ taskId, task: _task }: ChangesPanelProps) {
     { enabled: !hasPendingPermissions },
     [handleKeyNavigation, hasPendingPermissions],
   );
-
-  const isFileActive = (file: ChangedFile): boolean => {
-    if (!layout) return false;
-    return isDiffTabActiveInTree(layout.panelTree, file.path, file.status);
-  };
 
   if (!repoPath) {
     return <PanelMessage>No repository path available</PanelMessage>;
@@ -704,13 +667,13 @@ function LocalChangesPanel({ taskId, task: _task }: ChangesPanelProps) {
   return (
     <Box height="100%" overflowY="auto" py="2">
       <Flex direction="column">
-        {changedFiles.map((file) => (
+        {changedFiles.map((file, index) => (
           <ChangedFileItem
             key={file.path}
             file={file}
             taskId={taskId}
             repoPath={repoPath}
-            isActive={isFileActive(file)}
+            isActive={index === activeIndex}
             mainRepoPath={workspace?.folderPath}
           />
         ))}

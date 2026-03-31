@@ -1,6 +1,6 @@
 import { CloudDiffEditorPanel } from "@features/code-editor/components/CloudDiffEditorPanel";
 import { CodeEditorPanel } from "@features/code-editor/components/CodeEditorPanel";
-import { DiffEditorPanel } from "@features/code-editor/components/DiffEditorPanel";
+import { ReviewPage } from "@features/code-review/components/ReviewPage";
 import type { Tab } from "@features/panels/store/panelTypes";
 import { ActionPanel } from "@features/task-detail/components/ActionPanel";
 import { ChangesPanel } from "@features/task-detail/components/ChangesPanel";
@@ -40,15 +40,6 @@ export function TabContentRenderer({
         />
       );
 
-    case "diff":
-      return (
-        <DiffEditorPanel
-          taskId={taskId}
-          task={task}
-          absolutePath={data.absolutePath}
-        />
-      );
-
     case "action":
       return (
         <ActionPanel
@@ -66,6 +57,9 @@ export function TabContentRenderer({
           relativePath={data.relativePath}
         />
       );
+
+    case "review":
+      return <ReviewPage taskId={taskId} task={task} />;
 
     case "other":
       // Handle system tabs by ID

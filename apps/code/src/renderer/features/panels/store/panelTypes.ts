@@ -16,13 +16,6 @@ export type TabData =
       repoPath: string;
     }
   | {
-      type: "diff";
-      relativePath: string;
-      absolutePath: string;
-      repoPath: string;
-      status: GitFileStatus;
-    }
-  | {
       type: "terminal";
       terminalId: string;
       cwd: string;
@@ -41,6 +34,9 @@ export type TabData =
     }
   | {
       type: "logs";
+    }
+  | {
+      type: "review";
     }
   | {
       type: "other";
