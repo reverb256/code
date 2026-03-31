@@ -1793,11 +1793,23 @@ export class SessionService {
 
   /**
    * Start a fresh session for a task, abandoning the old conversation.
-   * Clears the backend sessionId so the next reconnect creates a new
-   * session instead of attempting to resume the stale one.
+   * Tears down the current session and creates a new task run so that
+   * S3 logs start clean — old messages won't reappear on restart.
    */
   async resetSession(taskId: string, repoPath: string): Promise<void> {
-    await this.reconnectInPlace(taskId, repoPath, null);
+    const session = sessionStoreSetters.getSessionByTaskId(taskId);
+    if (!session) return;
+
+    const { taskTitle } = session;
+
+    await this.teardownSession(session.taskRunId);
+
+    const auth = this.getAuthCredentials();
+    if (!auth) {
+      throw new Error("Unable to reach server. Please check your connection.");
+    }
+
+    await this.createNewLocalSession(taskId, taskTitle, repoPath, auth);
   }
 
   /**

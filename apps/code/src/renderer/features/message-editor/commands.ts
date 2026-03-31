@@ -1,4 +1,5 @@
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
+import { getSessionService } from "@features/sessions/service/service";
 import { ANALYTICS_EVENTS, type FeedbackType } from "@shared/types/analytics";
 import { track } from "@utils/analytics";
 import { toast } from "@utils/toast";
@@ -51,6 +52,18 @@ const commands: CodeCommand[] = [
   makeFeedbackCommand("good", "good", "Positive"),
   makeFeedbackCommand("bad", "bad", "Negative"),
   makeFeedbackCommand("feedback", "general", "General"),
+  {
+    name: "clear",
+    description: "Clear conversation history and start fresh",
+    async execute(_args, ctx) {
+      if (!ctx.repoPath || !ctx.taskId) {
+        toast.error("Cannot clear: no active session");
+        return;
+      }
+      await getSessionService().resetSession(ctx.taskId, ctx.repoPath);
+      toast.success("Conversation cleared");
+    },
+  },
 ];
 
 export const CODE_COMMANDS: AvailableCommand[] = commands.map((cmd) => ({
