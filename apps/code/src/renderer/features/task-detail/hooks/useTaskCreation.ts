@@ -12,7 +12,7 @@ import type { WorkspaceMode } from "@main/services/workspace/schemas";
 import { get } from "@renderer/di/container";
 import { RENDERER_TOKENS } from "@renderer/di/tokens";
 import { toast } from "@renderer/utils/toast";
-import type { ExecutionMode } from "@shared/types";
+import type { ExecutionMode, Task } from "@shared/types";
 import { useNavigationStore } from "@stores/navigationStore";
 import { logger } from "@utils/logger";
 import { useCallback, useState } from "react";
@@ -34,6 +34,7 @@ interface UseTaskCreationOptions {
   reasoningLevel?: string;
   environmentId?: string | null;
   sandboxEnvironmentId?: string;
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseTaskCreationReturn {
@@ -100,6 +101,7 @@ export function useTaskCreation({
   reasoningLevel,
   environmentId,
   sandboxEnvironmentId,
+  onTaskCreated,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const { navigateToTask } = useNavigationStore();
@@ -154,7 +156,11 @@ export function useTaskCreation({
       const taskService = get<TaskService>(RENDERER_TOKENS.TaskService);
       const result = await taskService.createTask(input, (output) => {
         invalidateTasks(output.task);
-        navigateToTask(output.task);
+        if (onTaskCreated) {
+          onTaskCreated(output.task);
+        } else {
+          navigateToTask(output.task);
+        }
         editor.clear();
         log.info("Task ready, navigated early", { taskId: output.task.id });
       });
@@ -191,6 +197,7 @@ export function useTaskCreation({
     sandboxEnvironmentId,
     invalidateTasks,
     navigateToTask,
+    onTaskCreated,
   ]);
 
   return {
