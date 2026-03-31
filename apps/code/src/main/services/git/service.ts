@@ -32,11 +32,13 @@ import { logger } from "../../utils/logger";
 import { TypedEventEmitter } from "../../utils/typed-event-emitter";
 import type { LlmCredentials } from "../llm-gateway/schemas";
 import type { LlmGatewayService } from "../llm-gateway/service";
+import { CreatePrSaga } from "./create-pr-saga";
 import type {
   ChangedFile,
   CloneProgressPayload,
   CommitOutput,
   CreatePrOutput,
+  CreatePrProgressPayload,
   DetectRepoResult,
   DiffStats,
   DiscardFileChangesOutput,
@@ -61,10 +63,12 @@ const fsPromises = fs.promises;
 
 export const GitServiceEvent = {
   CloneProgress: "cloneProgress",
+  CreatePrProgress: "createPrProgress",
 } as const;
 
 export interface GitServiceEvents {
   [GitServiceEvent.CloneProgress]: CloneProgressPayload;
+  [GitServiceEvent.CreatePrProgress]: CreatePrProgressPayload;
 }
 
 const log = logger.scope("git-service");
@@ -460,6 +464,91 @@ export class GitService extends TypedEventEmitter<GitServiceEvents> {
     };
   }
 
+  public async createPr(input: {
+    directoryPath: string;
+    flowId: string;
+    branchName?: string;
+    commitMessage?: string;
+    prTitle?: string;
+    prBody?: string;
+    draft?: boolean;
+    credentials?: { apiKey: string; apiHost: string };
+  }): Promise<CreatePrOutput> {
+    const { directoryPath, flowId } = input;
+
+    const emitProgress = (
+      step: CreatePrProgressPayload["step"],
+      message: string,
+      prUrl?: string,
+    ) => {
+      this.emit(GitServiceEvent.CreatePrProgress, {
+        flowId,
+        step,
+        message,
+        prUrl,
+      });
+    };
+
+    const saga = new CreatePrSaga(
+      {
+        getCurrentBranch: (dir) => getCurrentBranch(dir),
+        createBranch: (dir, name) => this.createBranch(dir, name),
+        checkoutBranch: (dir, name) => this.checkoutBranch(dir, name),
+        getChangedFilesHead: (dir) => this.getChangedFilesHead(dir),
+        generateCommitMessage: (dir, creds) =>
+          this.generateCommitMessage(dir, creds),
+        commit: (dir, msg) => this.commit(dir, msg),
+        getSyncStatus: (dir) => this.getGitSyncStatus(dir),
+        push: (dir) => this.push(dir),
+        publish: (dir) => this.publish(dir),
+        generatePrTitleAndBody: (dir, creds) =>
+          this.generatePrTitleAndBody(dir, creds),
+        createPr: (dir, title, body, draft) =>
+          this.createPrViaGh(dir, title, body, draft),
+        onProgress: emitProgress,
+      },
+      log,
+    );
+
+    const result = await saga.run({
+      directoryPath,
+      branchName: input.branchName,
+      commitMessage: input.commitMessage,
+      prTitle: input.prTitle,
+      prBody: input.prBody,
+      draft: input.draft,
+      credentials: input.credentials,
+    });
+
+    if (!result.success) {
+      emitProgress("error", result.error);
+      return {
+        success: false,
+        message: result.error,
+        prUrl: null,
+        failedStep: result.failedStep as CreatePrOutput["failedStep"],
+      };
+    }
+
+    const state = await this.getStateSnapshot(directoryPath, {
+      includePrStatus: true,
+    });
+
+    emitProgress(
+      "complete",
+      "Pull request created",
+      result.data.prUrl ?? undefined,
+    );
+
+    return {
+      success: true,
+      message: "Pull request created",
+      prUrl: result.data.prUrl,
+      failedStep: null,
+      state,
+    };
+  }
+
   public async getPrTemplate(
     directoryPath: string,
   ): Promise<GetPrTemplateOutput> {
@@ -629,12 +718,12 @@ export class GitService extends TypedEventEmitter<GitServiceEvents> {
     }
   }
 
-  public async createPr(
+  private async createPrViaGh(
     directoryPath: string,
     title?: string,
     body?: string,
     draft?: boolean,
-  ): Promise<CreatePrOutput> {
+  ): Promise<{ success: boolean; message: string; prUrl: string | null }> {
     const args = ["pr", "create"];
     if (title) {
       args.push("--title", title);
@@ -656,18 +745,10 @@ export class GitService extends TypedEventEmitter<GitServiceEvents> {
     const prUrlMatch = result.stdout.match(/https:\/\/github\.com\/[^\s]+/);
     const prUrl = prUrlMatch?.[0] ?? null;
 
-    const state = await this.getStateSnapshot(directoryPath, {
-      includeChangedFiles: false,
-      includeDiffStats: false,
-      includeLatestCommit: false,
-      includePrStatus: true,
-    });
-
     return {
       success: true,
       message: "Pull request created",
       prUrl,
-      state,
     };
   }
 

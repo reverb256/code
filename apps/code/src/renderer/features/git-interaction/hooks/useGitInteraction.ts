@@ -14,18 +14,29 @@ import {
   createBranch,
   getBranchNameInputState,
 } from "@features/git-interaction/utils/branchCreation";
+import { invalidateGitBranchQueries } from "@features/git-interaction/utils/gitCacheKeys";
 import { updateGitCacheFromSnapshot } from "@features/git-interaction/utils/updateGitCache";
 import { trpc, trpcClient } from "@renderer/trpc";
+import { getCloudUrlFromRegion } from "@shared/constants/oauth";
 import { ANALYTICS_EVENTS } from "@shared/types/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { track } from "@utils/analytics";
 import { logger } from "@utils/logger";
 import { useMemo } from "react";
+import { sanitizeBranchName } from "../utils/branchNameValidation";
 import { getSuggestedBranchName } from "../utils/getSuggestedBranchName";
 
 const log = logger.scope("git-interaction");
 
 export type { GitMenuAction, GitMenuActionId };
+
+function getLlmCredentials(): { apiKey: string; apiHost: string } | null {
+  const authState = useAuthStore.getState();
+  const apiKey = authState.oauthAccessToken;
+  const cloudRegion = authState.cloudRegion;
+  if (!apiKey || !cloudRegion) return null;
+  return { apiKey, apiHost: getCloudUrlFromRegion(cloudRegion) };
+}
 
 interface GitInteractionState {
   primaryAction: GitMenuAction;
@@ -40,7 +51,6 @@ interface GitInteractionState {
   diffStats: { filesChanged: number; linesAdded: number; linesRemoved: number };
   prUrl: string | null;
   pushDisabledReason: string | null;
-  prDisabledReason: string | null;
   isLoading: boolean;
 }
 
@@ -48,7 +58,6 @@ interface GitInteractionActions {
   openAction: (actionId: GitMenuActionId) => void;
   closeCommit: () => void;
   closePush: () => void;
-  closePr: () => void;
   closeBranch: () => void;
   setCommitMessage: (value: string) => void;
   setCommitNextStep: (value: CommitNextStep) => void;
@@ -57,10 +66,13 @@ interface GitInteractionActions {
   setBranchName: (value: string) => void;
   runCommit: () => Promise<void>;
   runPush: () => Promise<void>;
-  runPr: () => Promise<void>;
   runBranch: () => Promise<void>;
+  runCreatePr: () => Promise<void>;
   generateCommitMessage: () => Promise<void>;
   generatePrTitleAndBody: () => Promise<void>;
+  closeCreatePr: () => void;
+  setCreatePrBranchName: (value: string) => void;
+  setCreatePrDraft: (value: boolean) => void;
 }
 
 function trackGitAction(taskId: string, actionType: string, success: boolean) {
@@ -128,34 +140,99 @@ export function useGitInteraction(
     ],
   );
 
-  const openCreatePr = async () => {
-    modal.openPr("", "");
+  const openCreatePr = () => {
+    const prExists = git.prStatus?.prExists ?? false;
+    const needsBranch = !git.isFeatureBranch || prExists;
+    const needsCommit = git.hasChanges;
+    modal.openCreatePr({
+      needsBranch,
+      needsCommit,
+      baseBranch: git.currentBranch,
+      suggestedBranchName: needsBranch
+        ? getSuggestedBranchName(taskId, repoPath)
+        : undefined,
+    });
+  };
+
+  const runCreatePr = async () => {
     if (!repoPath) return;
 
-    const authState = useAuthStore.getState();
-    const apiKey = authState.oauthAccessToken;
-    const cloudRegion = authState.cloudRegion;
-    if (!apiKey || !cloudRegion) return;
+    if (store.createPrNeedsBranch && !store.branchName.trim()) {
+      modal.setCreatePrError("Branch name is required.");
+      return;
+    }
 
-    const apiHost =
-      cloudRegion === "eu"
-        ? "https://eu.posthog.com"
-        : "https://us.posthog.com";
+    modal.setIsSubmitting(true);
+    modal.setCreatePrError(null);
+    modal.setCreatePrStep("idle");
+    modal.setCreatePrFailedStep(null);
 
-    modal.setIsGeneratingPr(true);
+    const flowId = crypto.randomUUID();
+
+    const subscription = trpcClient.git.onCreatePrProgress.subscribe(
+      undefined,
+      {
+        onData: (data) => {
+          if (data.flowId !== flowId) return;
+          if (useGitInteractionStore.getState().createPrStep === data.step)
+            return;
+          modal.setCreatePrStep(data.step);
+        },
+      },
+    );
+
     try {
-      const result = await trpcClient.git.generatePrTitleAndBody.mutate({
+      const credentials = getLlmCredentials() ?? undefined;
+
+      const result = await trpcClient.git.createPr.mutate({
         directoryPath: repoPath,
-        credentials: { apiKey, apiHost },
+        flowId,
+        branchName: store.createPrNeedsBranch
+          ? store.branchName.trim()
+          : undefined,
+        commitMessage: store.commitMessage.trim() || undefined,
+        prTitle: store.prTitle.trim() || undefined,
+        prBody: store.prBody.trim() || undefined,
+        draft: store.createPrDraft || undefined,
+        credentials,
       });
-      if (result.title || result.body) {
-        modal.setPrTitle(result.title);
-        modal.setPrBody(result.body);
+
+      if (!result.success) {
+        trackGitAction(taskId, "create-pr", false);
+        useGitInteractionStore.setState({
+          createPrError: result.message,
+          createPrFailedStep: result.failedStep ?? null,
+          createPrStep: "error",
+        });
+        return;
       }
+
+      trackGitAction(taskId, "create-pr", true);
+      track(ANALYTICS_EVENTS.PR_CREATED, { task_id: taskId, success: true });
+
+      if (result.state) {
+        updateGitCacheFromSnapshot(queryClient, repoPath, result.state);
+      }
+      if (store.createPrNeedsBranch) {
+        invalidateGitBranchQueries(repoPath);
+      }
+
+      if (result.prUrl) {
+        await trpcClient.os.openExternal.mutate({ url: result.prUrl });
+      }
+
+      modal.closeCreatePr();
     } catch (error) {
-      log.error("Failed to auto-generate PR title and body", error);
+      log.error("Create PR flow failed", error);
+      useGitInteractionStore.setState({
+        createPrFailedStep: useGitInteractionStore.getState().createPrStep,
+        createPrError:
+          error instanceof Error ? error.message : "Create PR flow failed.",
+        createPrStep: "error",
+      });
     } finally {
-      modal.setIsGeneratingPr(false);
+      subscription.unsubscribe();
+      modal.setIsSubmitting(false);
     }
   };
 
@@ -186,11 +263,6 @@ export function useGitInteraction(
   const runCommit = async () => {
     if (!repoPath) return;
 
-    if (store.commitNextStep === "commit-pr" && computed.prDisabledReason) {
-      modal.setCommitError(computed.prDisabledReason);
-      return;
-    }
-
     if (store.commitNextStep === "commit-push" && computed.pushDisabledReason) {
       modal.setCommitError(computed.pushDisabledReason);
       return;
@@ -202,11 +274,8 @@ export function useGitInteraction(
     let message = store.commitMessage.trim();
 
     if (!message) {
-      const authState = useAuthStore.getState();
-      const apiKey = authState.oauthAccessToken;
-      const cloudRegion = authState.cloudRegion;
-
-      if (!apiKey || !cloudRegion) {
+      const credentials = getLlmCredentials();
+      if (!credentials) {
         modal.setCommitError(
           "Authentication required to generate commit message.",
         );
@@ -214,15 +283,10 @@ export function useGitInteraction(
         return;
       }
 
-      const apiHost =
-        cloudRegion === "eu"
-          ? "https://eu.posthog.com"
-          : "https://us.posthog.com";
-
       try {
         const generated = await trpcClient.git.generateCommitMessage.mutate({
           directoryPath: repoPath,
-          credentials: { apiKey, apiHost },
+          credentials,
         });
 
         if (!generated.message) {
@@ -268,13 +332,7 @@ export function useGitInteraction(
       modal.setCommitMessage("");
       modal.closeCommit();
 
-      const shouldPush =
-        store.commitNextStep === "commit-push" ||
-        store.commitNextStep === "commit-pr";
-      if (shouldPush) {
-        if (store.commitNextStep === "commit-pr" && !git.prStatus?.prExists) {
-          modal.setOpenPrAfterPush(true);
-        }
+      if (store.commitNextStep === "commit-push") {
         modal.openPush(git.hasRemote ? "push" : "publish");
       }
     } finally {
@@ -316,72 +374,6 @@ export function useGitInteraction(
       }
 
       modal.setPushState("success");
-
-      if (store.openPrAfterPush) {
-        modal.closePush();
-        modal.setOpenPrAfterPush(false);
-        openCreatePr();
-      }
-    } finally {
-      modal.setIsSubmitting(false);
-    }
-  };
-
-  const runPr = async () => {
-    if (!repoPath) return;
-
-    const title = store.prTitle.trim();
-    const body = store.prBody.trim();
-
-    if (!title) {
-      modal.setPrError("PR title is required.");
-      return;
-    }
-
-    modal.setIsSubmitting(true);
-    modal.setPrError(null);
-
-    try {
-      if (!git.hasRemote || git.aheadOfRemote > 0) {
-        const pushFn = git.hasRemote
-          ? trpcClient.git.push
-          : trpcClient.git.publish;
-        const pushResult = await pushFn.mutate({ directoryPath: repoPath });
-
-        if (!pushResult.success) {
-          trackGitAction(taskId, "create-pr", false);
-          modal.setPrError(
-            pushResult.message || "Failed to push before creating PR.",
-          );
-          return;
-        }
-
-        if (pushResult.state) {
-          updateGitCacheFromSnapshot(queryClient, repoPath, pushResult.state);
-        }
-      }
-
-      const result = await trpcClient.git.createPr.mutate({
-        directoryPath: repoPath,
-        title,
-        body,
-      });
-
-      if (!result.success || !result.prUrl) {
-        trackGitAction(taskId, "create-pr", false);
-        modal.setPrError(result.message || "Unable to create PR.");
-        return;
-      }
-
-      trackGitAction(taskId, "create-pr", true);
-      track(ANALYTICS_EVENTS.PR_CREATED, { task_id: taskId, success: true });
-
-      if (result.state) {
-        updateGitCacheFromSnapshot(queryClient, repoPath, result.state);
-      }
-
-      await trpcClient.os.openExternal.mutate({ url: result.prUrl });
-      modal.closePr();
     } finally {
       modal.setIsSubmitting(false);
     }
@@ -390,21 +382,13 @@ export function useGitInteraction(
   const generateCommitMessage = async () => {
     if (!repoPath) return;
 
-    const authState = useAuthStore.getState();
-    const apiKey = authState.oauthAccessToken;
-    const cloudRegion = authState.cloudRegion;
-
-    if (!apiKey || !cloudRegion) {
+    const credentials = getLlmCredentials();
+    if (!credentials) {
       modal.setCommitError(
         "Authentication required to generate commit message.",
       );
       return;
     }
-
-    const apiHost =
-      cloudRegion === "eu"
-        ? "https://eu.posthog.com"
-        : "https://us.posthog.com";
 
     modal.setIsGeneratingCommitMessage(true);
     modal.setCommitError(null);
@@ -412,7 +396,7 @@ export function useGitInteraction(
     try {
       const result = await trpcClient.git.generateCommitMessage.mutate({
         directoryPath: repoPath,
-        credentials: { apiKey, apiHost },
+        credentials,
       });
 
       if (result.message) {
@@ -437,38 +421,34 @@ export function useGitInteraction(
   const generatePrTitleAndBody = async () => {
     if (!repoPath) return;
 
-    const authState = useAuthStore.getState();
-    const apiKey = authState.oauthAccessToken;
-    const cloudRegion = authState.cloudRegion;
-
-    if (!apiKey || !cloudRegion) {
-      modal.setPrError("Authentication required to generate PR description.");
+    const credentials = getLlmCredentials();
+    if (!credentials) {
+      modal.setCreatePrError(
+        "Authentication required to generate PR description.",
+      );
       return;
     }
 
-    const apiHost =
-      cloudRegion === "eu"
-        ? "https://eu.posthog.com"
-        : "https://us.posthog.com";
-
     modal.setIsGeneratingPr(true);
-    modal.setPrError(null);
+    modal.setCreatePrError(null);
 
     try {
       const result = await trpcClient.git.generatePrTitleAndBody.mutate({
         directoryPath: repoPath,
-        credentials: { apiKey, apiHost },
+        credentials,
       });
 
       if (result.title || result.body) {
         modal.setPrTitle(result.title);
         modal.setPrBody(result.body);
       } else {
-        modal.setPrError("No changes detected to generate PR description.");
+        modal.setCreatePrError(
+          "No changes detected to generate PR description.",
+        );
       }
     } catch (error) {
       log.error("Failed to generate PR title and body", error);
-      modal.setPrError(
+      modal.setCreatePrError(
         error instanceof Error
           ? error.message
           : "Failed to generate PR description.",
@@ -528,7 +508,6 @@ export function useGitInteraction(
       diffStats: git.diffStats,
       prUrl: computed.prUrl,
       pushDisabledReason: computed.pushDisabledReason,
-      prDisabledReason: computed.prDisabledReason,
       isLoading: git.isLoading,
     },
     modals: store,
@@ -536,7 +515,6 @@ export function useGitInteraction(
       openAction,
       closeCommit: modal.closeCommit,
       closePush: modal.closePush,
-      closePr: modal.closePr,
       closeBranch: modal.closeBranch,
       setCommitMessage: modal.setCommitMessage,
       setCommitNextStep: modal.setCommitNextStep,
@@ -549,10 +527,16 @@ export function useGitInteraction(
       },
       runCommit,
       runPush,
-      runPr,
       runBranch,
+      runCreatePr,
       generateCommitMessage,
       generatePrTitleAndBody,
+      closeCreatePr: modal.closeCreatePr,
+      setCreatePrBranchName: (value: string) => {
+        const sanitized = sanitizeBranchName(value);
+        modal.setBranchName(sanitized);
+      },
+      setCreatePrDraft: modal.setCreatePrDraft,
     },
   };
 }
