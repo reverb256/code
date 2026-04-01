@@ -3,7 +3,7 @@ import { useAuthStateValue } from "@features/auth/hooks/authQueries";
 import { useSettingsStore } from "@features/settings/stores/settingsStore";
 import { getEffortOptions } from "@posthog/agent/adapters/claude/session/models";
 import { trpcClient } from "@renderer/trpc/client";
-import { getCloudUrlFromRegion } from "@shared/constants/oauth";
+import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import { logger } from "@utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
