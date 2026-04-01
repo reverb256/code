@@ -1,7 +1,7 @@
 import { useSignalSourceConfigs } from "@features/inbox/hooks/useSignalSourceConfigs";
 import { useSettingsDialogStore } from "@features/settings/stores/settingsDialogStore";
 import {
-  BrainIcon,
+  BugIcon,
   GithubLogoIcon,
   KanbanIcon,
   SparkleIcon,
@@ -15,7 +15,7 @@ import { type ReactNode, useMemo } from "react";
 
 const SOURCE_DISPLAY_ORDER: SignalSourceConfig["source_product"][] = [
   "session_replay",
-  "llm_analytics",
+  "error_tracking",
   "github",
   "linear",
   "zendesk",
@@ -26,8 +26,8 @@ function sourceIcon(product: SignalSourceConfig["source_product"]): ReactNode {
   switch (product) {
     case "session_replay":
       return <VideoIcon {...common} />;
-    case "llm_analytics":
-      return <BrainIcon {...common} />;
+    case "error_tracking":
+      return <BugIcon {...common} />;
     case "github":
       return <GithubLogoIcon {...common} />;
     case "linear":
