@@ -1,4 +1,4 @@
-import fs, { mkdirSync, symlinkSync } from "node:fs";
+import fs, { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -1204,17 +1204,24 @@ For git operations while detached:
       try {
         mkdirSync(mockNodeDir, { recursive: true });
         const nodeSymlinkPath = join(mockNodeDir, "node");
+        const nodeWrapper = `#!/bin/sh
+export ELECTRON_RUN_AS_NODE=1
+exec "${process.execPath}" "$@"
+`;
+
         try {
-          symlinkSync(process.execPath, nodeSymlinkPath);
-        } catch (err) {
-          if (
-            !(err instanceof Error) ||
-            !("code" in err) ||
-            err.code !== "EEXIST"
-          ) {
-            throw err;
+          const existingNode = fs.existsSync(nodeSymlinkPath)
+            ? fs.lstatSync(nodeSymlinkPath)
+            : null;
+          if (existingNode?.isSymbolicLink()) {
+            rmSync(nodeSymlinkPath);
           }
+        } catch (err) {
+          log.warn("Failed to inspect existing mock node entry", err);
         }
+
+        writeFileSync(nodeSymlinkPath, nodeWrapper);
+        chmodSync(nodeSymlinkPath, 0o755);
         this.mockNodeReady = true;
       } catch (err) {
         log.warn("Failed to setup mock node environment", err);
