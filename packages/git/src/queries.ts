@@ -935,6 +935,19 @@ export async function getUnstagedDiff(
   });
 }
 
+export async function getDiffAgainstRemote(
+  baseDir: string,
+  baseBranch: string,
+  options?: CreateGitClientOptions,
+): Promise<string> {
+  const manager = getGitOperationManager();
+  return manager.executeRead(
+    baseDir,
+    (git) => git.diff([`origin/${baseBranch}...HEAD`]),
+    { signal: options?.abortSignal },
+  );
+}
+
 export async function isCommitOnRemote(
   baseDir: string,
   commit: string,

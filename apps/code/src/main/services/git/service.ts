@@ -3,12 +3,12 @@ import path from "node:path";
 import { execGh } from "@posthog/git/gh";
 import {
   getAllBranches,
-  getChangedFilesBetweenBranches,
   getChangedFilesDetailed,
   getCommitConventions,
   getCommitsBetweenBranches,
   getCurrentBranch,
   getDefaultBranch,
+  getDiffAgainstRemote,
   getDiffStats,
   getFileAtHead,
   getLatestCommit,
@@ -636,8 +636,12 @@ export class GitService extends TypedEventEmitter<GitServiceEvents> {
     draft?: boolean,
   ): Promise<CreatePrOutput> {
     const args = ["pr", "create"];
-    if (title) args.push("--title", title);
-    if (body) args.push("--body", body);
+    if (title) {
+      args.push("--title", title);
+      args.push("--body", body || "");
+    } else {
+      args.push("--fill");
+    }
     if (draft) args.push("--draft");
 
     const result = await execGh(args, { cwd: directoryPath });
@@ -909,30 +913,27 @@ ${truncatedDiff}`;
     ]);
 
     const head = currentBranch ?? undefined;
-    const [commits, branchFiles, uncommittedFiles] = await Promise.all([
+    const [branchDiff, stagedDiff, unstagedDiff, commits] = await Promise.all([
+      getDiffAgainstRemote(directoryPath, defaultBranch),
+      getStagedDiff(directoryPath),
+      getUnstagedDiff(directoryPath),
       getCommitsBetweenBranches(directoryPath, defaultBranch, head, 30),
-      getChangedFilesBetweenBranches(directoryPath, defaultBranch, head),
-      this.getChangedFilesHead(directoryPath),
     ]);
 
-    const seenPaths = new Set(branchFiles.map((f) => f.path));
-    const changedFiles = [...branchFiles];
-    for (const file of uncommittedFiles) {
-      if (!seenPaths.has(file.path)) {
-        changedFiles.push(file);
-        seenPaths.add(file.path);
-      }
-    }
-
-    if (commits.length === 0 && changedFiles.length === 0) {
+    const uncommittedDiff = [stagedDiff, unstagedDiff]
+      .filter(Boolean)
+      .join("\n");
+    const parts = [branchDiff, uncommittedDiff].filter(Boolean);
+    const fullDiff = parts.join("\n");
+    if (commits.length === 0 && !fullDiff) {
       return { title: "", body: "" };
     }
-
     const commitsSummary = commits.map((c) => `- ${c.message}`).join("\n");
-
-    const filesSummary = changedFiles
-      .map((f) => `${f.status}: ${f.path}`)
-      .join("\n");
+    const truncatedDiff = fullDiff
+      ? fullDiff.length > MAX_DIFF_LENGTH
+        ? `${fullDiff.slice(0, MAX_DIFF_LENGTH)}\n... (diff truncated)`
+        : fullDiff
+      : "";
 
     const templateHint = prTemplate.template
       ? `The repository has a PR template. Use it as a guide for structure but adapt the content to match the actual changes:\n${prTemplate.template.slice(
@@ -959,6 +960,7 @@ Rules for the body:
 - Include a "What changed?" section with bullet points describing the key changes
 - Be thorough but concise
 - Use markdown formatting
+- Only describe changes that are actually in the diff — do not invent or assume changes
 ${templateHint}
 
 Do not include any explanation outside the TITLE and BODY sections.`;
@@ -970,12 +972,12 @@ Branch: ${currentBranch ?? "unknown"} -> ${defaultBranch}
 Commits in this PR:
 ${commitsSummary || "(no commits yet - changes are uncommitted)"}
 
-Changed files:
-${filesSummary || "(no file changes detected)"}`;
+Diff:
+${truncatedDiff || "(no diff available)"}`;
 
     log.debug("Generating PR title and body", {
       commitCount: commits.length,
-      fileCount: changedFiles.length,
+      diffLength: fullDiff.length,
       hasTemplate: !!prTemplate.template,
     });
 
