@@ -166,6 +166,27 @@ export function TaskInput({ onTaskCreated }: TaskInputProps = {}) {
     }
   }, [view.folderId, folders]);
 
+  // Auto-select the GitHub repository in cloud mode from the folder's remote URL
+  useEffect(() => {
+    if (workspaceMode !== "cloud" || selectedRepository) return;
+
+    const folder = folders.find((f) => f.path === selectedDirectory);
+    if (!folder?.remoteUrl) return;
+
+    const match = repositories.find(
+      (r) => r.toLowerCase() === folder.remoteUrl?.toLowerCase(),
+    );
+    if (match) {
+      setSelectedRepository(match);
+    }
+  }, [
+    workspaceMode,
+    selectedDirectory,
+    folders,
+    repositories,
+    selectedRepository,
+  ]);
+
   const effectiveRepoPath =
     workspaceMode === "cloud" ? selectedRepository : selectedDirectory;
 
