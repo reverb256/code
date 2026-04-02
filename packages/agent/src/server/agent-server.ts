@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import { getCurrentBranch } from "@posthog/git/queries";
 import { Hono } from "hono";
 import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
@@ -161,6 +162,7 @@ export class AgentServer {
   private posthogAPI: PostHogAPIClient;
   private questionRelayedToSlack = false;
   private detectedPrUrl: string | null = null;
+  private lastReportedBranch: string | null = null;
   private resumeState: ResumeState | null = null;
   // Guards against concurrent session initialization. autoInitializeSession() and
   // the GET /events SSE handler can both call initializeSession() — the SSE connection
@@ -515,6 +517,10 @@ export class AgentServer {
           stopReason: result.stopReason,
         });
 
+        if (result.stopReason === "end_turn") {
+          void this.syncCloudBranchMetadata(this.session.payload);
+        }
+
         this.broadcastTurnComplete(result.stopReason);
 
         if (result.stopReason === "end_turn") {
@@ -861,6 +867,10 @@ export class AgentServer {
         stopReason: result.stopReason,
       });
 
+      if (result.stopReason === "end_turn") {
+        void this.syncCloudBranchMetadata(payload);
+      }
+
       this.broadcastTurnComplete(result.stopReason);
 
       if (result.stopReason === "end_turn") {
@@ -934,6 +944,10 @@ export class AgentServer {
       this.logger.info("Resume message completed", {
         stopReason: result.stopReason,
       });
+
+      if (result.stopReason === "end_turn") {
+        void this.syncCloudBranchMetadata(payload);
+      }
 
       this.broadcastTurnComplete(result.stopReason);
 
@@ -1137,6 +1151,44 @@ Important:
 - Always create the PR as a draft. Do not ask for confirmation.
 ${attributionInstructions}
 `;
+  }
+
+  private async getCurrentGitBranch(): Promise<string | null> {
+    if (!this.config.repositoryPath) {
+      return null;
+    }
+
+    try {
+      return await getCurrentBranch(this.config.repositoryPath);
+    } catch (error) {
+      this.logger.warn("Failed to determine current git branch", {
+        repositoryPath: this.config.repositoryPath,
+        error,
+      });
+      return null;
+    }
+  }
+
+  private async syncCloudBranchMetadata(payload: JwtPayload): Promise<void> {
+    const branchName = await this.getCurrentGitBranch();
+    if (!branchName || branchName === this.lastReportedBranch) {
+      return;
+    }
+
+    try {
+      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
+        branch: branchName,
+        output: { head_branch: branchName },
+      });
+      this.lastReportedBranch = branchName;
+    } catch (error) {
+      this.logger.warn("Failed to attach current branch to task run", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        branchName,
+        error,
+      });
+    }
   }
 
   private async signalTaskComplete(
@@ -1527,6 +1579,7 @@ ${attributionInstructions}
     }
 
     this.pendingEvents = [];
+    this.lastReportedBranch = null;
     this.session = null;
   }
 

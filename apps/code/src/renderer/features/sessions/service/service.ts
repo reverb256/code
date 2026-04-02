@@ -29,6 +29,7 @@ import { taskViewedApi } from "@features/sidebar/hooks/useTaskViewed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import { getIsOnline } from "@renderer/stores/connectivityStore";
 import { trpcClient } from "@renderer/trpc/client";
+import { getGhUserTokenOrThrow } from "@renderer/utils/github";
 import { toast } from "@renderer/utils/toast";
 import { getCloudUrlFromRegion } from "@shared/constants/oauth";
 import {
@@ -39,6 +40,7 @@ import {
   type Task,
 } from "@shared/types";
 import { ANALYTICS_EVENTS } from "@shared/types/analytics";
+import type { CloudRunSource, PrAuthorshipMode } from "@shared/types/cloud";
 import type { AcpMessage, StoredLogEntry } from "@shared/types/session-events";
 import { isJsonRpcRequest } from "@shared/types/session-events";
 import { buildPermissionToolMetadata, track } from "@utils/analytics";
@@ -1269,6 +1271,35 @@ export class SessionService {
       throw new Error("Authentication required for cloud commands");
     }
 
+    const [previousRun, task] = await Promise.all([
+      client.getTaskRun(session.taskId, session.taskRunId),
+      client.getTask(session.taskId),
+    ]);
+    const hasGitHubRepo = !!task.repository && !!task.github_integration;
+    const previousState = previousRun.state as Record<string, unknown>;
+    const previousOutput = (previousRun.output ?? {}) as Record<
+      string,
+      unknown
+    >;
+    // Prefer the actual working branch the agent last pushed to (synced by
+    // agent-server after each turn), then the run-level branch field, then
+    // the original base branch from state. This preserves unmerged work when
+    // the snapshot has expired and the sandbox is rebuilt from scratch.
+    const previousBaseBranch =
+      (typeof previousOutput.head_branch === "string"
+        ? previousOutput.head_branch
+        : null) ??
+      previousRun.branch ??
+      (typeof previousState.pr_base_branch === "string"
+        ? previousState.pr_base_branch
+        : null) ??
+      session.cloudBranch;
+    const prAuthorshipMode = this.getCloudPrAuthorshipMode(previousState);
+    const githubUserToken =
+      prAuthorshipMode === "user" && hasGitHubRepo
+        ? await getGhUserTokenOrThrow()
+        : undefined;
+
     log.info("Creating resume run for terminal cloud task", {
       taskId: session.taskId,
       previousRunId: session.taskRunId,
@@ -1280,10 +1311,20 @@ export class SessionService {
     // The agent will load conversation history and restore the sandbox snapshot.
     const updatedTask = await client.runTaskInCloud(
       session.taskId,
-      session.cloudBranch,
+      previousBaseBranch,
       {
         resumeFromRunId: session.taskRunId,
         pendingUserMessage: promptText,
+      },
+      undefined,
+      {
+        prAuthorshipMode,
+        runSource: this.getCloudRunSource(previousState),
+        signalReportId:
+          typeof previousState.signal_report_id === "string"
+            ? previousState.signal_report_id
+            : undefined,
+        githubUserToken,
       },
     );
     const newRun = updatedTask.latest_run;
@@ -2005,6 +2046,20 @@ export class SessionService {
         this.stopCloudTaskWatch(update.taskId);
       }
     }
+  }
+
+  private getCloudPrAuthorshipMode(
+    state: Record<string, unknown>,
+  ): PrAuthorshipMode {
+    const explicitMode = state.pr_authorship_mode;
+    if (explicitMode === "user" || explicitMode === "bot") {
+      return explicitMode;
+    }
+    return state.run_source === "signal_report" ? "bot" : "user";
+  }
+
+  private getCloudRunSource(state: Record<string, unknown>): CloudRunSource {
+    return state.run_source === "signal_report" ? "signal_report" : "manual";
   }
 
   /**

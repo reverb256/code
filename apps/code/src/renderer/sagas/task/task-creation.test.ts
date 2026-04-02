@@ -137,6 +137,12 @@ describe("TaskCreationSaga", () => {
       "release/remembered-branch",
       undefined,
       undefined,
+      {
+        prAuthorshipMode: "bot",
+        runSource: "manual",
+        signalReportId: undefined,
+        githubUserToken: undefined,
+      },
     );
     expect(onTaskReady).toHaveBeenCalledTimes(1);
     expect(onTaskReady.mock.calls[0][0].task.latest_run?.branch).toBe(

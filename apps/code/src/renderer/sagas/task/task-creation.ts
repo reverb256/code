@@ -17,6 +17,8 @@ import { trpcClient } from "@renderer/trpc";
 import { generateTitleAndSummary } from "@renderer/utils/generateTitle";
 import { getTaskRepository } from "@renderer/utils/repository";
 import type { ExecutionMode, Task } from "@shared/types";
+import type { CloudRunSource, PrAuthorshipMode } from "@shared/types/cloud";
+import { getGhUserTokenOrThrow } from "@utils/github";
 import { logger } from "@utils/logger";
 import { queryClient } from "@utils/queryClient";
 
@@ -73,6 +75,8 @@ export interface TaskCreationInput {
   reasoningLevel?: string;
   environmentId?: string;
   sandboxEnvironmentId?: string;
+  cloudPrAuthorshipMode?: PrAuthorshipMode;
+  cloudRunSource?: CloudRunSource;
   signalReportId?: string;
 }
 
@@ -259,13 +263,29 @@ export class TaskCreationSaga extends Saga<
     if (shouldStartCloudRun) {
       task = await this.step({
         name: "cloud_run",
-        execute: () =>
-          this.deps.posthogClient.runTaskInCloud(
+        execute: async () => {
+          const hasGitHubRepo = !!task.repository && !!task.github_integration;
+          const prAuthorshipMode =
+            input.cloudPrAuthorshipMode ?? (hasGitHubRepo ? "user" : "bot");
+          let githubUserToken: string | undefined;
+
+          if (prAuthorshipMode === "user" && hasGitHubRepo) {
+            githubUserToken = await getGhUserTokenOrThrow();
+          }
+
+          return this.deps.posthogClient.runTaskInCloud(
             task.id,
             branch,
             undefined,
             input.sandboxEnvironmentId,
-          ),
+            {
+              prAuthorshipMode,
+              runSource: input.cloudRunSource ?? "manual",
+              signalReportId: input.signalReportId,
+              githubUserToken,
+            },
+          );
+        },
         rollback: async () => {
           log.info("Rolling back: cloud run (no-op)", { taskId: task.id });
         },
