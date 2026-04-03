@@ -33,6 +33,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useTaskCreation } from "../hooks/useTaskCreation";
+import {
+  type AdditionalRepoConfig,
+  AdditionalRepoRow,
+} from "./AdditionalRepoRow";
 import { TaskInputEditor } from "./TaskInputEditor";
 import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 
@@ -84,6 +88,9 @@ export function TaskInput({
   );
 
   const [selectedDirectory, setSelectedDirectory] = useState("");
+  const [additionalRepos, setAdditionalRepos] = useState<
+    AdditionalRepoConfig[]
+  >([]);
   const workspaceMode = lastUsedWorkspaceMode || "local";
   const adapter = lastUsedAdapter;
 
@@ -275,6 +282,7 @@ export function TaskInput({
       effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
         ? selectedCloudEnvId
         : undefined,
+    additionalRepos: additionalRepos.length > 0 ? additionalRepos : undefined,
   });
 
   const handleCycleMode = useCallback(() => {
@@ -484,6 +492,44 @@ export function TaskInput({
               </Flex>
             )}
           </Flex>
+
+          {additionalRepos.map((repo) => (
+            <AdditionalRepoRow
+              key={repo.id}
+              config={repo}
+              onChange={(updated) =>
+                setAdditionalRepos((prev) =>
+                  prev.map((r) => (r.id === repo.id ? updated : r)),
+                )
+              }
+              onRemove={() =>
+                setAdditionalRepos((prev) =>
+                  prev.filter((r) => r.id !== repo.id),
+                )
+              }
+              disabled={isCreatingTask}
+            />
+          ))}
+
+          {workspaceMode !== "cloud" && selectedDirectory && (
+            <button
+              type="button"
+              onClick={() =>
+                setAdditionalRepos((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    directory: "",
+                    mode: workspaceMode,
+                    branch: null,
+                  },
+                ])
+              }
+              className="self-start rounded px-2 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
+            >
+              + Add repository
+            </button>
+          )}
 
           <TaskInputEditor
             ref={editorRef}

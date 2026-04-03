@@ -20,6 +20,12 @@ import type { TaskCreationInput, TaskService } from "../service/service";
 
 const log = logger.scope("task-creation");
 
+interface AdditionalRepoOption {
+  directory: string;
+  mode: WorkspaceMode;
+  branch: string | null;
+}
+
 interface UseTaskCreationOptions {
   editorRef: React.RefObject<MessageEditorHandle | null>;
   selectedDirectory: string;
@@ -34,6 +40,7 @@ interface UseTaskCreationOptions {
   reasoningLevel?: string;
   environmentId?: string | null;
   sandboxEnvironmentId?: string;
+  additionalRepos?: AdditionalRepoOption[];
   onTaskCreated?: (task: Task) => void;
 }
 
@@ -57,8 +64,18 @@ function prepareTaskInput(
     reasoningLevel?: string;
     environmentId?: string | null;
     sandboxEnvironmentId?: string;
+    additionalRepos?: AdditionalRepoOption[];
   },
 ): TaskCreationInput {
+  const validAdditionalRepos = options.additionalRepos
+    ?.filter((r) => r.directory)
+    .map((r) => ({
+      repoPath: r.directory,
+      mode: r.mode,
+      branch: r.branch,
+      label: r.directory.split("/").pop(),
+    }));
+
   return {
     content: contentToXml(content).trim(),
     filePaths: extractFilePaths(content),
@@ -73,6 +90,10 @@ function prepareTaskInput(
     reasoningLevel: options.reasoningLevel,
     environmentId: options.environmentId ?? undefined,
     sandboxEnvironmentId: options.sandboxEnvironmentId,
+    additionalRepos:
+      validAdditionalRepos && validAdditionalRepos.length > 0
+        ? validAdditionalRepos
+        : undefined,
   };
 }
 
@@ -101,6 +122,7 @@ export function useTaskCreation({
   reasoningLevel,
   environmentId,
   sandboxEnvironmentId,
+  additionalRepos,
   onTaskCreated,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -149,6 +171,7 @@ export function useTaskCreation({
         reasoningLevel,
         environmentId,
         sandboxEnvironmentId,
+        additionalRepos,
       });
 
       if (executionMode) {
@@ -197,6 +220,7 @@ export function useTaskCreation({
     reasoningLevel,
     environmentId,
     sandboxEnvironmentId,
+    additionalRepos,
     invalidateTasks,
     navigateToTask,
     onTaskCreated,

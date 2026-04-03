@@ -107,6 +107,7 @@ function TaskRow({
       isPinned={task.isPinned}
       needsPermission={task.needsPermission}
       taskRunStatus={task.taskRunStatus}
+      additionalRepositories={task.additionalRepositories}
       timestamp={timestamp}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

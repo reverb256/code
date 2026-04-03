@@ -55,6 +55,13 @@ const sagaLogger: SagaLogger = {
   warn: (message, data) => log.warn(message, data),
 };
 
+export interface AdditionalRepoInput {
+  repoPath: string;
+  mode: WorkspaceMode;
+  branch?: string | null;
+  label?: string;
+}
+
 export interface TaskCreationInput {
   // For opening existing task
   taskId?: string;
@@ -73,6 +80,8 @@ export interface TaskCreationInput {
   environmentId?: string;
   sandboxEnvironmentId?: string;
   signalReportId?: string;
+  /** Additional repos for multi-repo tasks. */
+  additionalRepos?: AdditionalRepoInput[];
 }
 
 export interface TaskCreationOutput {
@@ -160,6 +169,34 @@ export class TaskCreationSaga extends Saga<
             this.resolveFolder(repoPath),
           );
 
+      // Resolve additional repo folders in parallel
+      let additionalRepoConfigs:
+        | {
+            mainRepoPath: string;
+            folderId: string;
+            folderPath: string;
+            mode: WorkspaceMode;
+            branch?: string;
+            label?: string;
+          }[]
+        | undefined;
+      if (input.additionalRepos && input.additionalRepos.length > 0) {
+        const resolvedFolders = await Promise.all(
+          input.additionalRepos.map(async (repo) => ({
+            folder: await this.resolveFolder(repo.repoPath),
+            repo,
+          })),
+        );
+        additionalRepoConfigs = resolvedFolders.map(({ folder: f, repo }) => ({
+          mainRepoPath: repo.repoPath,
+          folderId: f.id,
+          folderPath: repo.repoPath,
+          mode: (repo.mode ?? workspaceMode) as WorkspaceMode,
+          branch: repo.branch ?? undefined,
+          label: repo.label ?? repo.repoPath.split("/").pop(),
+        }));
+      }
+
       const workspaceInfos = await this.step({
         name: "workspace_creation",
         execute: async () => {
@@ -170,6 +207,10 @@ export class TaskCreationSaga extends Saga<
             folderPath: repoPath,
             mode: workspaceMode,
             branch: branch ?? undefined,
+            label: additionalRepoConfigs
+              ? repoPath.split("/").pop()
+              : undefined,
+            additionalRepos: additionalRepoConfigs,
           });
         },
         rollback: async () => {

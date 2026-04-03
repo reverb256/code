@@ -15,6 +15,11 @@ import { selectIsFocusedOnWorktree, useFocusStore } from "@stores/focusStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SidebarItem } from "../SidebarItem";
 
+interface AdditionalRepo {
+  fullPath: string;
+  name: string;
+}
+
 interface TaskItemProps {
   depth?: number;
   taskId: string;
@@ -35,6 +40,8 @@ interface TaskItemProps {
     | "cancelled";
   timestamp?: number;
   isEditing?: boolean;
+  /** Additional repos for multi-repo tasks (renders +N badge). */
+  additionalRepositories?: AdditionalRepo[];
   onClick: () => void;
   onDoubleClick?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -186,6 +193,7 @@ export function TaskItem({
   taskRunStatus,
   timestamp,
   isEditing = false,
+  additionalRepositories,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -254,6 +262,18 @@ export function TaskItem({
     </span>
   ) : null;
 
+  const multiRepoBadge =
+    additionalRepositories && additionalRepositories.length > 0 ? (
+      <Tooltip
+        content={`Also includes: ${additionalRepositories.map((r) => r.name).join(", ")}`}
+        side="right"
+      >
+        <span className="shrink-0 rounded-sm bg-gray-4 px-1 text-[10px] text-gray-11 group-hover:hidden">
+          +{additionalRepositories.length}
+        </span>
+      </Tooltip>
+    ) : null;
+
   const toolbar =
     onArchive || onTogglePin ? (
       <TaskHoverToolbar
@@ -264,8 +284,9 @@ export function TaskItem({
     ) : null;
 
   const endContent =
-    timestampNode || toolbar ? (
+    timestampNode || multiRepoBadge || toolbar ? (
       <>
+        {multiRepoBadge}
         {timestampNode}
         {toolbar}
       </>
