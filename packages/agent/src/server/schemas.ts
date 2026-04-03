@@ -8,7 +8,7 @@ const httpHeaderSchema = z.object({
 const remoteMcpServerSchema = z.object({
   type: z.enum(["http", "sse"]),
   name: z.string().min(1, "MCP server name is required"),
-  url: z.string().url("MCP server url must be a valid URL"),
+  url: z.url({ error: "MCP server url must be a valid URL" }),
   headers: z.array(httpHeaderSchema).default([]),
 });
 
@@ -35,7 +35,7 @@ export const claudeCodeConfigSchema = z.object({
 export const jsonRpcRequestSchema = z.object({
   jsonrpc: z.literal("2.0"),
   method: z.string(),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
   id: z.union([z.string(), z.number()]).optional(),
 });
 
