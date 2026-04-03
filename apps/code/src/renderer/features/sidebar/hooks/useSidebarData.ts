@@ -3,7 +3,10 @@ import { useSessions } from "@features/sessions/stores/sessionStore";
 import { useSuspendedTaskIds } from "@features/suspension/hooks/useSuspendedTaskIds";
 import { useTasks } from "@features/tasks/hooks/useTasks";
 import { useWorkspaces } from "@features/workspace/hooks/useWorkspace";
-import { getTaskRepository, parseRepository } from "@renderer/utils/repository";
+import {
+  getTaskRepositories,
+  parseRepository,
+} from "@renderer/utils/repository";
 import type { Task } from "@shared/types";
 import { useEffect, useMemo, useRef } from "react";
 import { useSidebarStore } from "../stores/sidebarStore";
@@ -26,6 +29,8 @@ export interface TaskData {
   isPinned: boolean;
   needsPermission: boolean;
   repository: TaskRepositoryInfo | null;
+  /** Additional repositories beyond the primary (for multi-repo tasks). */
+  additionalRepositories: TaskRepositoryInfo[];
   isSuspended: boolean;
   folderId?: string;
   taskRunStatus?:
@@ -74,26 +79,35 @@ interface UseSidebarDataProps {
   activeView: ViewState;
 }
 
-function getRepositoryInfo(
+function repoStringToInfo(repo: string): TaskRepositoryInfo {
+  const parsed = parseRepository(repo);
+  return {
+    fullPath: repo,
+    name: parsed?.repoName ?? repo,
+  };
+}
+
+function getRepositoryInfos(
   task: Task,
   folderPath?: string,
-): TaskRepositoryInfo | null {
-  const repository = getTaskRepository(task);
-  if (repository) {
-    const parsed = parseRepository(repository);
-    return {
-      fullPath: repository,
-      name: parsed?.repoName ?? repository,
-    };
+): { primary: TaskRepositoryInfo | null; additional: TaskRepositoryInfo[] } {
+  const allRepos = getTaskRepositories(task);
+
+  if (allRepos.length > 0) {
+    const primary = repoStringToInfo(allRepos[0]);
+    const additional = allRepos.slice(1).map(repoStringToInfo);
+    return { primary, additional };
   }
+
   if (folderPath) {
     const name = folderPath.split("/").pop() ?? folderPath;
     return {
-      fullPath: folderPath,
-      name,
+      primary: { fullPath: folderPath, name },
+      additional: [],
     };
   }
-  return null;
+
+  return { primary: null, additional: [] };
 }
 
 function getSortValue(task: TaskData, sortMode: SortMode): number {
@@ -208,6 +222,11 @@ export function useSidebarData({
       const isUnread =
         taskLastViewedAt != null && lastActivityAt > taskLastViewedAt;
 
+      const { primary, additional } = getRepositoryInfos(
+        task,
+        workspace?.folderPath,
+      );
+
       return {
         id: task.id,
         title: task.title,
@@ -218,7 +237,8 @@ export function useSidebarData({
         isPinned: pinnedTaskIds.has(task.id),
         isSuspended: suspendedTaskIds.has(task.id),
         needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
-        repository: getRepositoryInfo(task, workspace?.folderPath),
+        repository: primary,
+        additionalRepositories: additional,
         folderId: workspace?.folderId || undefined,
         taskRunStatus: task.latest_run?.status,
         taskRunEnvironment: task.latest_run?.environment,

@@ -160,7 +160,7 @@ export class TaskCreationSaga extends Saga<
             this.resolveFolder(repoPath),
           );
 
-      const workspaceInfo = await this.step({
+      const workspaceInfos = await this.step({
         name: "workspace_creation",
         execute: async () => {
           return trpcClient.workspace.create.mutate({
@@ -181,18 +181,22 @@ export class TaskCreationSaga extends Saga<
         },
       });
 
-      workspace = {
-        taskId: task.id,
-        folderId: folder.id,
-        folderPath: repoPath,
-        mode: workspaceMode,
-        worktreePath: workspaceInfo.worktree?.worktreePath ?? null,
-        worktreeName: workspaceInfo.worktree?.worktreeName ?? null,
-        branchName: workspaceInfo.worktree?.branchName ?? null,
-        baseBranch: workspaceInfo.worktree?.baseBranch ?? null,
-        createdAt:
-          workspaceInfo.worktree?.createdAt ?? new Date().toISOString(),
-      };
+      // Use first workspace info for backward compat (single-repo tasks)
+      const workspaceInfo = workspaceInfos[0];
+      workspace = workspaceInfo
+        ? {
+            taskId: task.id,
+            folderId: folder.id,
+            folderPath: repoPath,
+            mode: workspaceMode,
+            worktreePath: workspaceInfo.worktree?.worktreePath ?? null,
+            worktreeName: workspaceInfo.worktree?.worktreeName ?? null,
+            branchName: workspaceInfo.worktree?.branchName ?? null,
+            baseBranch: workspaceInfo.worktree?.baseBranch ?? null,
+            createdAt:
+              workspaceInfo.worktree?.createdAt ?? new Date().toISOString(),
+          }
+        : null;
     } else if (workspaceMode === "cloud") {
       await this.step({
         name: "cloud_workspace_creation",
@@ -221,7 +225,7 @@ export class TaskCreationSaga extends Saga<
         taskId: task.id,
         folderId: "",
         folderPath: "",
-        mode: "cloud",
+        mode: "cloud" as const,
         worktreePath: null,
         worktreeName: null,
         branchName: null,
