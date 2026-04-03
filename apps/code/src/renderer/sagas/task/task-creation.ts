@@ -443,12 +443,37 @@ export class TaskCreationSaga extends Saga<
       }
     }
 
+    // Detect additional repos for multi-repo tasks
+    const additionalRepoNames: string[] = [];
+    if (input.additionalRepos) {
+      for (const repo of input.additionalRepos) {
+        const detected = await trpcClient.git.detectRepo.query({
+          directoryPath: repo.repoPath,
+        });
+        if (detected) {
+          additionalRepoNames.push(
+            `${detected.organization}/${detected.repository}`,
+          );
+        }
+      }
+    }
+
+    // Use repositories array when we have multiple repos
+    const hasMultipleRepos = repository && additionalRepoNames.length > 0;
+
     return this.step({
       name: "task_creation",
       execute: async () => {
         const result = await this.deps.posthogClient.createTask({
           description: input.content ?? "",
-          repository: repository ?? undefined,
+          // Send repositories array for multi-repo, legacy field for single-repo
+          repositories: hasMultipleRepos
+            ? [
+                { repository: repository! },
+                ...additionalRepoNames.map((r) => ({ repository: r })),
+              ]
+            : undefined,
+          repository: hasMultipleRepos ? undefined : (repository ?? undefined),
           github_integration:
             input.workspaceMode === "cloud"
               ? input.githubIntegrationId
