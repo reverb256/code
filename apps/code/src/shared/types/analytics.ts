@@ -226,7 +226,7 @@ export const ANALYTICS_EVENTS = {
   FILE_OPENED: "File opened",
   FILE_DIFF_VIEWED: "File diff viewed",
   REVIEW_PANEL_VIEWED: "Review panel viewed",
-  DIFF_VIEW_MODE_CHANGED: "Diff view mode changed",
+  DIFF_VIEW_MODE_CHANGED: "Diff mode changed",
 
   // Workspace events
   WORKSPACE_CREATED: "Workspace created",
