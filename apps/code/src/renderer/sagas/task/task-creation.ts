@@ -301,15 +301,28 @@ export class TaskCreationSaga extends Saga<
             )
           : undefined;
 
+      // Resolve additional repo paths from multi-repo workspaces
+      let additionalRepoPaths: string[] | undefined;
+      if (!input.taskId) {
+        // New task: resolve from workspace creation results
+        const allWorkspaces = await trpcClient.workspace.getInfo.query({
+          taskId: task.id,
+        });
+        if (allWorkspaces.length > 1) {
+          additionalRepoPaths = allWorkspaces
+            .slice(1)
+            .map((ws) => ws.worktree?.worktreePath)
+            .filter((p): p is string => !!p);
+        }
+      }
+
       await this.step({
         name: "agent_session",
         execute: async () => {
-          // Fire-and-forget for both open and create paths.
-          // The UI handles "connecting" state with a spinner (TaskLogsPanel),
-          // so we don't need to block the saga on the full reconnect chain.
           const connectParams: ConnectParams = {
             task,
             repoPath: agentCwd ?? "",
+            additionalRepoPaths,
           };
           if (initialPrompt) connectParams.initialPrompt = initialPrompt;
           if (input.executionMode)
