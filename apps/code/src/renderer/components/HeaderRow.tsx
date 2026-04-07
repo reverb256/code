@@ -127,7 +127,7 @@ export function HeaderRow() {
           <RightSidebarTrigger />
           {rightSidebarOpen &&
             (isCloudTask ? (
-              <CloudGitInteractionHeader taskId={view.data.id} />
+              <CloudGitInteractionHeader taskId={view.data.id} task={view.data} />
             ) : (
               <GitInteractionHeader taskId={view.data.id} />
             ))}

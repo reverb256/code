@@ -1,6 +1,6 @@
 import { Cloud as CloudIcon } from "@phosphor-icons/react";
 import { Flex, Text } from "@radix-ui/themes";
-import { useWorkspace } from "@renderer/features/workspace/hooks/useWorkspace";
+import { useIsCloudTask } from "@renderer/features/workspace/hooks/useIsCloudTask";
 import type { Task } from "@shared/types";
 import type React from "react";
 import { useMemo } from "react";
@@ -48,8 +48,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
     closeTab,
   );
 
-  const workspace = useWorkspace(taskId);
-  const isCloud = workspace?.mode === "cloud";
+  const isCloud = useIsCloudTask(taskId);
 
   const cloudEmptyState = useMemo(
     () =>
