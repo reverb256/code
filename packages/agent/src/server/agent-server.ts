@@ -651,9 +651,13 @@ export class AgentServer {
       deviceType: deviceInfo.type,
       logWriter,
       onStructuredOutput: async (output) => {
-        await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-          output,
-        });
+        await this.posthogAPI.setTaskRunOutput(
+          payload.task_id,
+          payload.run_id,
+          {
+            output,
+          },
+        );
       },
     });
 
