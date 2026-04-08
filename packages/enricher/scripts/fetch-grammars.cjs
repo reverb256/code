@@ -8,8 +8,6 @@
  *
  * If tree-sitter CLI cannot build WASM (no emscripten), you can manually
  * place pre-built .wasm files in the grammars/ directory.
- *
- * Copied from posthog-vscode/scripts/fetch-grammars.js
  */
 
 const { execSync } = require('child_process');
