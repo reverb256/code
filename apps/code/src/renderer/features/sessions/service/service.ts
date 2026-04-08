@@ -36,6 +36,7 @@ import {
   type EffortLevel,
   type ExecutionMode,
   effortLevelSchema,
+  isTerminalStatus,
   type Task,
 } from "@shared/types";
 import { ANALYTICS_EVENTS } from "@shared/types/analytics";
@@ -103,6 +104,7 @@ export function resetSessionService(): void {
 
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
+  private nextCloudTaskWatchToken = 0;
   private subscriptions = new Map<
     string,
     {
@@ -115,6 +117,9 @@ export class SessionService {
     string,
     {
       runId: string;
+      apiHost: string;
+      teamId: number;
+      startToken: number;
       subscription: { unsubscribe: () => void };
       onStatusChange?: () => void;
     }
@@ -1119,8 +1124,7 @@ export class SessionService {
       return { stopReason: "empty" };
     }
 
-    const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
-    if (session.cloudStatus && terminalStatuses.has(session.cloudStatus)) {
+    if (isTerminalStatus(session.cloudStatus)) {
       return this.resumeCloudRun(session, promptText);
     }
 
@@ -1268,6 +1272,10 @@ export class SessionService {
     if (!client) {
       throw new Error("Authentication required for cloud commands");
     }
+    const auth = await this.getCloudCommandAuth();
+    if (!auth) {
+      throw new Error("Authentication required for cloud commands");
+    }
 
     log.info("Creating resume run for terminal cloud task", {
       taskId: session.taskId,
@@ -1316,7 +1324,7 @@ export class SessionService {
     // in run state (pending_user_message), NOT via user_message command.
 
     // Start the watcher immediately so we don't miss status updates.
-    this.watchCloudTask(session.taskId, newRun.id);
+    this.watchCloudTask(session.taskId, newRun.id, auth.apiHost, auth.teamId);
 
     // Invalidate task queries so the UI picks up the new run metadata
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -1332,8 +1340,7 @@ export class SessionService {
   }
 
   private async cancelCloudPrompt(session: AgentSession): Promise<boolean> {
-    const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
-    if (session.cloudStatus && terminalStatuses.has(session.cloudStatus)) {
+    if (isTerminalStatus(session.cloudStatus)) {
       log.info("Skipping cancel for terminal cloud run", {
         taskId: session.taskId,
         status: session.cloudStatus,
@@ -1772,35 +1779,31 @@ export class SessionService {
   /**
    * Start watching a cloud task via main-process CloudTaskService.
    *
-   * The watcher stays alive across navigation. On navigate-away the caller
-   * invokes the returned cleanup which only toggles viewing off (background
-   * status polling continues at 60s). On navigate-back this method detects
-   * the existing watcher, toggles viewing back on, and returns a new cleanup.
-   *
-   * A fresh watcher is created only on first visit or when the runId changes
-   * (new run started). Terminal status triggers full teardown from within
-   * handleCloudTaskUpdate via stopCloudTaskWatch().
+   * The watcher stays alive across navigation. A fresh watcher is created only
+   * on first visit or when the runId changes (new run started). Terminal
+   * status triggers full teardown from within handleCloudTaskUpdate via
+   * stopCloudTaskWatch().
    */
   watchCloudTask(
     taskId: string,
     runId: string,
+    apiHost: string,
+    teamId: number,
     onStatusChange?: () => void,
-    viewing?: boolean,
   ): () => void {
     const taskRunId = runId;
+    const startToken = ++this.nextCloudTaskWatchToken;
     const existingWatcher = this.cloudTaskWatchers.get(taskId);
 
-    // Resuming same run — just toggle viewing back on
-    if (existingWatcher && existingWatcher.runId === runId) {
+    // Resuming same run — reuse the existing watcher.
+    if (
+      existingWatcher &&
+      existingWatcher.runId === runId &&
+      existingWatcher.apiHost === apiHost &&
+      existingWatcher.teamId === teamId
+    ) {
       existingWatcher.onStatusChange = onStatusChange;
-      trpcClient.cloudTask.setViewing
-        .mutate({ taskId, runId, viewing: viewing ?? true })
-        .catch(() => {});
-      return () => {
-        trpcClient.cloudTask.setViewing
-          .mutate({ taskId, runId, viewing: false })
-          .catch(() => {});
-      };
+      return () => {};
     }
 
     // Different run — full cleanup of old watcher first
@@ -1822,26 +1825,8 @@ export class SessionService {
       });
     }
 
-    void fetchAuthState()
-      .then((authState) => {
-        if (!authState.projectId || !authState.cloudRegion) {
-          log.warn("No auth for cloud task watcher", { taskId });
-          return;
-        }
-
-        return trpcClient.cloudTask.watch.mutate({
-          taskId,
-          runId,
-          apiHost: getCloudUrlFromRegion(authState.cloudRegion),
-          teamId: authState.projectId,
-          viewing,
-        });
-      })
-      .catch((err: unknown) =>
-        log.warn("Failed to start cloud task watcher", { taskId, err }),
-      );
-
-    // Subscribe to updates
+    // Subscribe before starting the main-process watcher so the first replayed
+    // SSE/log burst cannot race ahead of the renderer subscription.
     const subscription = trpcClient.cloudTask.onUpdate.subscribe(
       { taskId, runId },
       {
@@ -1849,7 +1834,9 @@ export class SessionService {
           this.handleCloudTaskUpdate(taskRunId, update);
           const watcher = this.cloudTaskWatchers.get(taskId);
           if (
-            (update.kind === "status" || update.kind === "snapshot") &&
+            (update.kind === "status" ||
+              update.kind === "snapshot" ||
+              update.kind === "error") &&
             watcher?.onStatusChange
           ) {
             watcher.onStatusChange();
@@ -1862,15 +1849,50 @@ export class SessionService {
 
     this.cloudTaskWatchers.set(taskId, {
       runId,
+      apiHost,
+      teamId,
+      startToken,
       subscription,
       onStatusChange,
     });
 
-    return () => {
-      trpcClient.cloudTask.setViewing
-        .mutate({ taskId, runId, viewing: false })
-        .catch(() => {});
-    };
+    // Start main-process watcher after the subscription is attached.
+    void (async () => {
+      try {
+        if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+          return;
+        }
+
+        await trpcClient.cloudTask.watch.mutate({
+          taskId,
+          runId,
+          apiHost,
+          teamId,
+        });
+
+        // If the local watcher was torn down while the watch request was in
+        // flight, send a compensating unwatch after the start request lands.
+        if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+          await trpcClient.cloudTask.unwatch.mutate({ taskId, runId });
+        }
+      } catch (err: unknown) {
+        if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+          return;
+        }
+        log.warn("Failed to start cloud task watcher", { taskId, err });
+      }
+    })();
+
+    return () => {};
+  }
+
+  private isCurrentCloudTaskWatcher(
+    taskId: string,
+    runId: string,
+    startToken: number,
+  ): boolean {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    return watcher?.runId === runId && watcher.startToken === startToken;
   }
 
   /**
@@ -1890,6 +1912,37 @@ export class SessionService {
       );
   }
 
+  async retryCloudTaskWatch(taskId: string): Promise<void> {
+    const session = sessionStoreSetters.getSessionByTaskId(taskId);
+    if (!session?.isCloud) {
+      throw new Error("No active cloud session for task");
+    }
+
+    const previousErrorTitle = session.errorTitle;
+    const previousErrorMessage = session.errorMessage;
+
+    sessionStoreSetters.updateSession(session.taskRunId, {
+      status: "disconnected",
+      errorTitle: undefined,
+      errorMessage: undefined,
+      isPromptPending: false,
+    });
+
+    try {
+      await trpcClient.cloudTask.retry.mutate({
+        taskId,
+        runId: session.taskRunId,
+      });
+    } catch (error) {
+      sessionStoreSetters.updateSession(session.taskRunId, {
+        status: "error",
+        errorTitle: previousErrorTitle,
+        errorMessage: previousErrorMessage,
+      });
+      throw error;
+    }
+  }
+
   public updateSessionTaskTitle(taskId: string, taskTitle: string): void {
     const session = sessionStoreSetters.getSessionByTaskId(taskId);
     if (!session) return;
@@ -1903,6 +1956,18 @@ export class SessionService {
     taskRunId: string,
     update: CloudTaskUpdatePayload,
   ): void {
+    if (update.kind === "error") {
+      sessionStoreSetters.updateSession(taskRunId, {
+        status: "error",
+        errorTitle: update.errorTitle,
+        errorMessage:
+          update.errorMessage ??
+          "Lost connection to the cloud run. Retry to reconnect.",
+        isPromptPending: false,
+      });
+      return;
+    }
+
     // Append new log entries with dedup guard
     if (update.newEntries && update.newEntries.length > 0) {
       const session = sessionStoreSetters.getSessions()[taskRunId];
@@ -1947,7 +2012,7 @@ export class SessionService {
       }
     }
 
-    // Flush queued messages when a cloud turn completes (detected via log polling)
+    // Flush queued messages when a cloud turn completes (detected via live log updates)
     const sessionAfterLogs = sessionStoreSetters.getSessions()[taskRunId];
     if (
       sessionAfterLogs &&
@@ -1984,13 +2049,13 @@ export class SessionService {
           });
           this.sendQueuedCloudMessages(session.taskId).catch(() => {
             // Retries exhausted — message was re-enqueued by
-            // sendQueuedCloudMessages, poll-based flush will keep trying
+            // sendQueuedCloudMessages, future stream-based completion detection
+            // will keep trying
           });
         }
       }
 
-      const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
-      if (update.status && terminalStatuses.has(update.status)) {
+      if (isTerminalStatus(update.status)) {
         // Clean up any pending resume messages that couldn't be sent
         const session = sessionStoreSetters.getSessions()[taskRunId];
         if (
