@@ -8,6 +8,7 @@ import { InboxSourcesDialog } from "@features/inbox/components/InboxSourcesDialo
 import {
   useInboxAvailableSuggestedReviewers,
   useInboxReportsInfinite,
+  useInboxSignalProcessingState,
 } from "@features/inbox/hooks/useInboxReports";
 import { useSignalSourceConfigs } from "@features/inbox/hooks/useSignalSourceConfigs";
 import { useInboxReportSelectionStore } from "@features/inbox/stores/inboxReportSelectionStore";
@@ -116,6 +117,13 @@ export function InboxSignalsTab() {
     () => filterReportsBySearch(allReports, searchQuery),
     [allReports, searchQuery],
   );
+
+  const { data: signalProcessingState } = useInboxSignalProcessingState({
+    enabled: isInboxView,
+    refetchInterval: inboxPollingActive ? INBOX_REFETCH_INTERVAL_MS : false,
+    refetchIntervalInBackground: false,
+    staleTime: inboxPollingActive ? INBOX_REFETCH_INTERVAL_MS : 12_000,
+  });
 
   const readyCount = useMemo(
     () => allReports.filter((r) => r.status === "ready").length,
@@ -377,6 +385,7 @@ export function InboxSignalsTab() {
                     livePolling={inboxPollingActive}
                     readyCount={readyCount}
                     processingCount={processingCount}
+                    pipelinePausedUntil={signalProcessingState?.paused_until}
                     reports={reports}
                   />
                 </Box>
@@ -446,6 +455,7 @@ export function InboxSignalsTab() {
               totalCount={0}
               filteredCount={0}
               isSearchActive={false}
+              pipelinePausedUntil={signalProcessingState?.paused_until}
               searchDisabledReason={searchDisabledReason}
               hideFilters
             />
