@@ -85,7 +85,7 @@ export const FileMentionChip = memo(function FileMentionChip({
   return (
     <Flex
       align="center"
-      gap="1"
+      gap="0"
       asChild
       onClick={isClickable ? handleClick : undefined}
       onContextMenu={handleContextMenu}
