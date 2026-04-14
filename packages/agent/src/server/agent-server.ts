@@ -665,6 +665,15 @@ export class AgentServer {
       taskId: payload.task_id,
       deviceType: deviceInfo.type,
       logWriter,
+      onStructuredOutput: async (output) => {
+        await this.posthogAPI.setTaskRunOutput(
+          payload.task_id,
+          payload.run_id,
+          {
+            output,
+          },
+        );
+      },
     });
 
     // Tap both streams to broadcast all ACP messages via SSE (mimics local transport)
@@ -700,18 +709,25 @@ export class AgentServer {
       clientCapabilities: {},
     });
 
-    let preTaskRun: TaskRun | null = null;
-    try {
-      preTaskRun = await this.posthogAPI.getTaskRun(
-        payload.task_id,
-        payload.run_id,
-      );
-    } catch {
-      this.logger.warn("Failed to fetch task run for session context", {
-        taskId: payload.task_id,
-        runId: payload.run_id,
-      });
-    }
+    const [preTaskRun, preTask] = await Promise.all([
+      this.posthogAPI
+        .getTaskRun(payload.task_id, payload.run_id)
+        .catch((err) => {
+          this.logger.warn("Failed to fetch task run for session context", {
+            taskId: payload.task_id,
+            runId: payload.run_id,
+            error: err,
+          });
+          return null;
+        }),
+      this.posthogAPI.getTask(payload.task_id).catch((err) => {
+        this.logger.warn("Failed to fetch task for session context", {
+          taskId: payload.task_id,
+          error: err,
+        });
+        return null;
+      }),
+    ]);
 
     const prUrl =
       typeof (preTaskRun?.state as Record<string, unknown>)
@@ -732,6 +748,7 @@ export class AgentServer {
         taskRunId: payload.run_id,
         systemPrompt: this.buildSessionSystemPrompt(prUrl),
         allowedDomains: this.config.allowedDomains,
+        jsonSchema: preTask?.json_schema ?? null,
         ...(this.config.claudeCode?.plugins?.length && {
           claudeCode: {
             options: {
