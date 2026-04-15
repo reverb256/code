@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@features/auth/hooks/authClient";
+import { shouldApplyAutoTitle } from "@features/sessions/hooks/shouldApplyAutoTitle";
 import { getSessionService } from "@features/sessions/service/service";
 import {
   sessionStoreSetters,
@@ -65,9 +66,8 @@ export function useChatTitleGenerator(taskId: string): void {
 
     const run = async () => {
       try {
-        const cachedTasks = queryClient.getQueryData<Task[]>(["tasks", "list"]);
-        const cachedTask = cachedTasks?.find((t) => t.id === taskId);
-        if (cachedTask?.title_manually_set) {
+        // Early exit if title was manually set before generation started
+        if (!shouldApplyAutoTitle(taskId)) {
           log.debug("Skipping auto-title, user renamed task", { taskId });
           return;
         }
@@ -76,6 +76,16 @@ export function useChatTitleGenerator(taskId: string): void {
         if (result) {
           const { title, summary } = result;
           if (title) {
+            // Re-check after async generation to prevent race condition:
+            // user may have renamed while the LLM was generating the title
+            if (!shouldApplyAutoTitle(taskId)) {
+              log.debug(
+                "Skipping auto-title, user renamed task during generation",
+                { taskId },
+              );
+              return;
+            }
+
             const client = await getAuthenticatedClient();
             if (client) {
               await client.updateTask(taskId, { title });
