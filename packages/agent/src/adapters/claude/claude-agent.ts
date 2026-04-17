@@ -372,18 +372,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         switch (message.type) {
           case "system":
             if (message.subtype === "compact_boundary") {
-              // Send used:0 immediately so the client doesn't keep showing
-              // the stale pre-compaction context size until the next turn.
-              lastAssistantTotalUsage = 0;
+              // Don't send used:0 immediately - preserve actual token usage
+              // until the next turn updates it properly
               promptReplayed = true;
-              await this.client.sessionUpdate({
-                sessionId: params.sessionId,
-                update: {
-                  sessionUpdate: "usage_update",
-                  used: 0,
-                  size: lastContextWindowSize,
-                },
-              });
+              // Note: We don't send usage_update with used:0 as it incorrectly resets the UI
+              // The token usage will be properly updated on the next turn
             }
             if (message.subtype === "local_command_output") {
               promptReplayed = true;
