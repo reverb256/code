@@ -85,23 +85,22 @@ export const FileMentionChip = memo(function FileMentionChip({
   return (
     <Flex
       align="center"
-      gap="0"
+      gap="1"
       asChild
       onClick={isClickable ? handleClick : undefined}
       onContextMenu={handleContextMenu}
-      className={isClickable ? "cursor-pointer hover:underline" : ""}
+      className={`relative top-[1px] ${isClickable ? "cursor-pointer hover:underline" : ""}`}
     >
       <Text size="1">
         <FileIcon filename={filename} size={12} />
-        <span className="font-mono">
-          {directory ? (
-            <span className="inline-flex">
+        <span className="inline-flex min-w-0 items-baseline gap-1 font-mono text-[13px] leading-none">
+          <span className="flex-shrink-0 whitespace-nowrap font-semibold">
+            {filename}
+          </span>
+          {directory && (
+            <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-gray-9">
               {directory}
-              <span className="text-gray-9">/</span>
-              {filename}
             </span>
-          ) : (
-            filename
           )}
         </span>
       </Text>
