@@ -509,17 +509,22 @@ function FileHeaderRow({
       />
       <FileIcon filename={fileName} size={14} />
       <span
-        style={{
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          minWidth: 0,
-        }}
+        style={{ display: "flex", minWidth: 0, flex: 1, gap: "6px" }}
         title={dirPath + fileName}
       >
-        <span style={{ color: "var(--gray-9)" }}>{dirPath}</span>
-        <span style={{ fontWeight: 600, marginLeft: dirPath ? "-6px" : 0 }}>
+        <span style={{ fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
           {fileName}
+        </span>
+        <span
+          style={{
+            color: "var(--gray-9)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+          }}
+        >
+          {dirPath}
         </span>
       </span>
       <span style={{ fontFamily: "monospace", fontSize: "10px" }}>
