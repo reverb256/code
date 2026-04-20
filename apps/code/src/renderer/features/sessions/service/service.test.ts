@@ -1,3 +1,4 @@
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { AgentSession } from "@features/sessions/stores/sessionStore";
 import type { Task } from "@shared/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +18,7 @@ const mockTrpcAgent = vi.hoisted(() => ({
   onPermissionRequest: { subscribe: vi.fn() },
   onSessionIdleKilled: { subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })) },
   resetAll: { mutate: vi.fn().mockResolvedValue(undefined) },
+  getPreviewConfigOptions: { query: vi.fn().mockResolvedValue([]) },
 }));
 
 const mockTrpcWorkspace = vi.hoisted(() => ({
@@ -29,11 +31,20 @@ const mockTrpcLogs = vi.hoisted(() => ({
   writeLocalLogs: { mutate: vi.fn() },
 }));
 
+const mockTrpcCloudTask = vi.hoisted(() => ({
+  sendCommand: { mutate: vi.fn() },
+  watch: { mutate: vi.fn().mockResolvedValue(undefined) },
+  retry: { mutate: vi.fn().mockResolvedValue(undefined) },
+  unwatch: { mutate: vi.fn().mockResolvedValue(undefined) },
+  onUpdate: { subscribe: vi.fn() },
+}));
+
 vi.mock("@renderer/trpc/client", () => ({
   trpcClient: {
     agent: mockTrpcAgent,
     workspace: mockTrpcWorkspace,
     logs: mockTrpcLogs,
+    cloudTask: mockTrpcCloudTask,
   },
 }));
 
@@ -55,22 +66,45 @@ const mockSessionStoreSetters = vi.hoisted(() => ({
   replaceOptimisticWithEvent: vi.fn(),
 }));
 
+const mockGetConfigOptionByCategory = vi.hoisted(() =>
+  vi.fn(
+    (
+      _configOptions?: Array<{ category?: string }>,
+      _category?: string,
+    ): { category?: string } | undefined => undefined,
+  ),
+);
+
 vi.mock("@features/sessions/stores/sessionStore", () => ({
   sessionStoreSetters: mockSessionStoreSetters,
-  getConfigOptionByCategory: vi.fn(() => undefined),
+  getConfigOptionByCategory: mockGetConfigOptionByCategory,
   mergeConfigOptions: vi.fn((live: unknown[], _persisted: unknown[]) => live),
+  flattenSelectOptions: vi.fn(
+    (options: Array<{ options?: unknown[] }> | undefined) => {
+      if (!options?.length) return [];
+      const first = options[0] as { options?: unknown[] };
+      if (first && Array.isArray(first.options)) {
+        return options.flatMap(
+          (group) => (group as { options: unknown[] }).options,
+        );
+      }
+      return options;
+    },
+  ),
 }));
 
+const mockAuthenticatedClient = vi.hoisted(() => ({
+  createTaskRun: vi.fn(),
+  appendTaskRunLog: vi.fn(),
+  getTaskRun: vi.fn(),
+  getTask: vi.fn(),
+  runTaskInCloud: vi.fn(),
+}));
+
+type MockAuthenticatedClient = typeof mockAuthenticatedClient;
+
 const mockBuildAuthenticatedClient = vi.hoisted(() =>
-  vi.fn<
-    () => {
-      createTaskRun: ReturnType<typeof vi.fn>;
-      appendTaskRunLog: ReturnType<typeof vi.fn>;
-    } | null
-  >(() => ({
-    createTaskRun: vi.fn(),
-    appendTaskRunLog: vi.fn(),
-  })),
+  vi.fn<() => MockAuthenticatedClient | null>(() => mockAuthenticatedClient),
 );
 
 const mockAuth = vi.hoisted(() => ({
@@ -151,9 +185,13 @@ vi.mock("@renderer/stores/connectivityStore", () => ({
   getIsOnline: () => mockGetIsOnline(),
 }));
 
+const mockSettingsState = vi.hoisted(() => ({
+  customInstructions: "",
+}));
+
 vi.mock("@features/settings/stores/settingsStore", () => ({
   useSettingsStore: {
-    getState: () => ({ customInstructions: "" }),
+    getState: () => mockSettingsState,
   },
 }));
 
@@ -185,7 +223,13 @@ vi.mock("@utils/notifications", () => ({
 vi.mock("@renderer/utils/toast", () => ({
   toast: { error: vi.fn() },
 }));
-vi.mock("@shared/constants/oauth", () => ({
+vi.mock("@utils/queryClient", () => ({
+  queryClient: {
+    invalidateQueries: vi.fn(),
+    setQueriesData: vi.fn(),
+  },
+}));
+vi.mock("@shared/utils/urls", () => ({
   getCloudUrlFromRegion: () => "https://api.anthropic.com",
 }));
 vi.mock("@utils/session", async () => {
@@ -193,6 +237,11 @@ vi.mock("@utils/session", async () => {
     await vi.importActual<typeof import("@utils/session")>("@utils/session");
   return {
     convertStoredEntriesToEvents: vi.fn(() => []),
+    createUserMessageEvent: vi.fn((message, ts) => ({
+      type: "user",
+      ts,
+      message,
+    })),
     createUserShellExecuteEvent: vi.fn(() => ({
       type: "acp_message",
       ts: Date.now(),
@@ -250,9 +299,30 @@ describe("SessionService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetSessionService();
+    mockSettingsState.customInstructions = "";
     mockGetIsOnline.mockReturnValue(true);
+    mockGetConfigOptionByCategory.mockReturnValue(undefined);
     mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
     mockSessionStoreSetters.getSessions.mockReturnValue({});
+    mockAuth.fetchAuthState.mockResolvedValue({
+      status: "authenticated",
+      bootstrapComplete: true,
+      cloudRegion: "us",
+      projectId: 123,
+      availableProjectIds: [123],
+      availableOrgIds: [],
+      hasCodeAccess: true,
+      needsScopeReauth: false,
+    });
+    mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({
+      unsubscribe: vi.fn(),
+    });
+    mockTrpcAgent.onPermissionRequest.subscribe.mockReturnValue({
+      unsubscribe: vi.fn(),
+    });
+    mockTrpcCloudTask.onUpdate.subscribe.mockReturnValue({
+      unsubscribe: vi.fn(),
+    });
   });
 
   describe("singleton management", () => {
@@ -275,6 +345,35 @@ describe("SessionService", () => {
   });
 
   describe("connectToTask", () => {
+    it("skips local connection for cloud runs", async () => {
+      const service = getSessionService();
+
+      await service.connectToTask({
+        task: createMockTask({
+          latest_run: {
+            id: "run-123",
+            task: "task-123",
+            team: 123,
+            environment: "cloud",
+            status: "in_progress",
+            log_url: "https://logs.example.com/run-123",
+            error_message: null,
+            output: null,
+            state: {},
+            branch: "main",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
+            completed_at: null,
+          },
+        }),
+        repoPath: "/repo",
+      });
+
+      expect(mockAuth.fetchAuthState).not.toHaveBeenCalled();
+      expect(mockTrpcAgent.reconnect.mutate).not.toHaveBeenCalled();
+      expect(mockSessionStoreSetters.setSession).not.toHaveBeenCalled();
+    });
+
     it("skips connection if already connected", async () => {
       const service = getSessionService();
       const mockSession = createMockSession({ status: "connected" });
@@ -320,6 +419,7 @@ describe("SessionService", () => {
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
         createTaskRun: createTaskRunMock,
         appendTaskRunLog: vi.fn(),
       });
@@ -433,6 +533,357 @@ describe("SessionService", () => {
     });
   });
 
+  describe("watchCloudTask", () => {
+    it("builds codex cloud mode options using native codex modes", () => {
+      const service = getSessionService();
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        undefined,
+        "full-access",
+        "codex",
+      );
+
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          configOptions: [
+            expect.objectContaining({
+              id: "mode",
+              currentValue: "full-access",
+              options: [
+                expect.objectContaining({ value: "read-only" }),
+                expect.objectContaining({ value: "auto" }),
+                expect.objectContaining({ value: "full-access" }),
+              ],
+            }),
+          ],
+        }),
+      );
+    });
+
+    it("resets a same-run preloaded session before the first cloud snapshot", () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          taskRunId: "run-123",
+          taskId: "task-123",
+          taskTitle: "Cloud Task",
+          events: [{ type: "acp_message", ts: 1, message: { method: "test" } }],
+        }),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://app.example.com",
+        2,
+      );
+
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskRunId: "run-123",
+          taskId: "task-123",
+          taskTitle: "Cloud Task",
+          isCloud: true,
+          status: "disconnected",
+          events: [],
+        }),
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ isCloud: true }),
+      );
+    });
+
+    it("subscribes to cloud updates before starting the watcher", async () => {
+      const service = getSessionService();
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      expect(mockTrpcCloudTask.onUpdate.subscribe).toHaveBeenCalledWith(
+        { taskId: "task-123", runId: "run-123" },
+        expect.objectContaining({
+          onData: expect.any(Function),
+          onError: expect.any(Function),
+        }),
+      );
+
+      expect(mockTrpcCloudTask.watch.mutate).toHaveBeenCalledWith({
+        taskId: "task-123",
+        runId: "run-123",
+        apiHost: "https://api.anthropic.com",
+        teamId: 123,
+      });
+
+      expect(
+        mockTrpcCloudTask.onUpdate.subscribe.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        mockTrpcCloudTask.watch.mutate.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("hydrates a fresh cloud session from persisted logs before replay arrives", async () => {
+      const service = getSessionService();
+      const hydratedSession = createMockSession({
+        taskRunId: "run-123",
+        taskId: "task-123",
+        taskTitle: "Cloud Task",
+        status: "disconnected",
+        isCloud: true,
+        events: [],
+      });
+
+      mockSessionStoreSetters.getSessionByTaskId.mockImplementation(() => {
+        return hydratedSession;
+      });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+        JSON.stringify({
+          type: "notification",
+          timestamp: "2024-01-01T00:00:00Z",
+          notification: {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "assistant_message",
+              },
+            },
+          },
+        }),
+      );
+      mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://logs.example.com/run-123",
+      );
+
+      await vi.waitFor(() => {
+        expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            events: [],
+            isCloud: true,
+            logUrl: "https://logs.example.com/run-123",
+            processedLineCount: 1,
+          }),
+        );
+      });
+    });
+
+    it("ignores stale async starts when the same watcher is replaced", async () => {
+      const service = getSessionService();
+      let resolveFirstWatchStart!: () => void;
+      let resolveSecondWatchStart!: () => void;
+
+      mockTrpcCloudTask.watch.mutate
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveFirstWatchStart = resolve;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveSecondWatchStart = resolve;
+            }),
+        );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+      service.stopCloudTaskWatch("task-123");
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      resolveSecondWatchStart();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      resolveFirstWatchStart();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockTrpcCloudTask.watch.mutate).toHaveBeenCalledTimes(2);
+    });
+
+    it("sends a compensating unwatch if teardown wins the race after watch starts", async () => {
+      const service = getSessionService();
+      let resolveWatchStart!: () => void;
+      mockTrpcCloudTask.unwatch.mutate.mockClear();
+
+      mockTrpcCloudTask.watch.mutate.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveWatchStart = resolve;
+          }),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      service.stopCloudTaskWatch("task-123");
+      expect(mockTrpcCloudTask.unwatch.mutate).toHaveBeenCalledTimes(1);
+
+      resolveWatchStart();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockTrpcCloudTask.unwatch.mutate).toHaveBeenCalledTimes(2);
+      expect(mockTrpcCloudTask.unwatch.mutate).toHaveBeenLastCalledWith({
+        taskId: "task-123",
+        runId: "run-123",
+      });
+    });
+
+    it("merges model and effort options fetched from preview-config into the cloud session", async () => {
+      const service = getSessionService();
+
+      const sessionAfterInit = createMockSession({
+        taskRunId: "run-model-123",
+        taskId: "task-model-123",
+        isCloud: true,
+        configOptions: [
+          {
+            id: "mode",
+            name: "Approval Preset",
+            type: "select",
+            category: "mode",
+            currentValue: "plan",
+            options: [],
+          },
+        ],
+      });
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-model-123": sessionAfterInit,
+      });
+
+      mockTrpcAgent.getPreviewConfigOptions.query.mockResolvedValueOnce([
+        {
+          id: "mode",
+          name: "Approval Preset",
+          type: "select",
+          category: "mode",
+          currentValue: "plan",
+          options: [],
+        },
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: "claude-opus-4-7",
+          options: [
+            { value: "claude-opus-4-7", name: "Opus 4.7" },
+            { value: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+          ],
+        },
+        {
+          id: "effort",
+          name: "Effort",
+          type: "select",
+          category: "thought_level",
+          currentValue: "high",
+          options: [],
+        },
+      ]);
+
+      service.watchCloudTask(
+        "task-model-123",
+        "run-model-123",
+        "https://api.example.com",
+        7,
+        undefined,
+        undefined,
+        undefined,
+        "claude",
+        "claude-sonnet-4-6",
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          mockTrpcAgent.getPreviewConfigOptions.query,
+        ).toHaveBeenCalledWith({
+          apiHost: "https://api.example.com",
+          adapter: "claude",
+        });
+      });
+
+      await vi.waitFor(() => {
+        const calls = mockSessionStoreSetters.updateSession.mock.calls as Array<
+          [string, { configOptions?: Array<{ id: string }> }]
+        >;
+        const modelUpdate = calls.find(
+          ([runId, patch]) =>
+            runId === "run-model-123" &&
+            patch.configOptions?.some((o) => o.id === "model"),
+        );
+        expect(modelUpdate).toBeTruthy();
+        const ids = modelUpdate?.[1].configOptions?.map((o) => o.id);
+        expect(ids).toEqual(
+          expect.arrayContaining(["mode", "model", "effort"]),
+        );
+        const modelOpt = modelUpdate?.[1].configOptions?.find(
+          (o) => o.id === "model",
+        ) as { currentValue?: string } | undefined;
+        expect(modelOpt?.currentValue).toBe("claude-sonnet-4-6");
+      });
+    });
+
+    it("retries an errored cloud watcher in place", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue({
+        ...createMockSession({
+          taskId: "task-123",
+          taskRunId: "run-123",
+          status: "error",
+        }),
+        isCloud: true,
+      });
+
+      await service.retryCloudTaskWatch("task-123");
+
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          status: "disconnected",
+          errorTitle: undefined,
+          errorMessage: undefined,
+          isPromptPending: false,
+        }),
+      );
+      expect(mockTrpcCloudTask.retry.mutate).toHaveBeenCalledWith({
+        taskId: "task-123",
+        runId: "run-123",
+      });
+    });
+  });
+
   describe("reset", () => {
     it("clears connecting tasks", () => {
       const service = getSessionService();
@@ -466,6 +917,7 @@ describe("SessionService", () => {
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
         createTaskRun: createTaskRunMock,
         appendTaskRunLog: vi.fn(),
       });
@@ -583,29 +1035,194 @@ describe("SessionService", () => {
       });
     });
 
-    it("sets session to error state on fatal error", async () => {
+    it("serializes structured prompts before sending cloud follow-ups", async () => {
       const service = getSessionService();
-      const mockSession = createMockSession();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "in_progress",
+        }),
+      );
+      mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
+        success: true,
+        result: { stopReason: "end_turn" },
+      });
+
+      const prompt: ContentBlock[] = [
+        { type: "text", text: "read this" },
+        {
+          type: "resource",
+          resource: {
+            uri: "attachment://test.txt",
+            text: "hello from file",
+            mimeType: "text/plain",
+          },
+        },
+      ];
+
+      const result = await service.sendPrompt("task-123", prompt);
+
+      expect(result.stopReason).toBe("end_turn");
+      expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledTimes(1);
+
+      const [args] = mockTrpcCloudTask.sendCommand.mutate.mock.calls[0] as [
+        {
+          params?: { content?: unknown };
+        },
+      ];
+
+      expect(args.params?.content).toEqual(
+        expect.stringContaining("__twig_cloud_prompt_v1__:"),
+      );
+      expect(args.params?.content).toEqual(
+        expect.stringContaining('"type":"resource"'),
+      );
+    });
+
+    it("preserves codex runtime selection when resuming a terminal cloud run", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "completed",
+          cloudBranch: "feature/codex-run",
+          adapter: "codex",
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "gpt-5.4",
+              options: [],
+            },
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "high",
+              options: [],
+            },
+          ],
+        }),
+      );
+      mockGetConfigOptionByCategory.mockImplementation(
+        (
+          configOptions: Array<{ category?: string }> | undefined,
+          category?: string,
+        ) => configOptions?.find((opt) => opt.category === category),
+      );
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: "feature/codex-run",
+        runtime_adapter: "codex",
+        model: "gpt-5.4",
+        reasoning_effort: "high",
+        environment: "cloud",
+        status: "completed",
+        log_url: "https://example.com/logs/run-123",
+        error_message: null,
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+        createMockTask({
+          latest_run: {
+            id: "run-456",
+            task: "task-123",
+            team: 123,
+            branch: "feature/codex-run",
+            runtime_adapter: "codex",
+            model: "gpt-5.4",
+            reasoning_effort: "high",
+            environment: "cloud",
+            status: "queued",
+            log_url: "https://example.com/logs/run-456",
+            error_message: null,
+            output: {},
+            state: {},
+            created_at: "2026-04-14T00:06:00Z",
+            updated_at: "2026-04-14T00:06:00Z",
+            completed_at: null,
+          },
+        }),
+      );
+
+      const result = await service.sendPrompt(
+        "task-123",
+        "Continue with Codex",
+      );
+
+      expect(result.stopReason).toBe("queued");
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "feature/codex-run",
+        expect.objectContaining({
+          adapter: "codex",
+          model: "gpt-5.4",
+          reasoningLevel: "high",
+          resumeFromRunId: "run-123",
+        }),
+      );
+    });
+
+    it("attempts automatic recovery on fatal error", async () => {
+      const service = getSessionService();
+      const mockSession = createMockSession({
+        logUrl: "https://logs.example.com/run-123",
+      });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": { ...mockSession, isPromptPending: false },
       });
+      mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcAgent.reconnect.mutate.mockResolvedValue({
+        sessionId: "run-123",
+        channel: "agent-event:run-123",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask({
+          latest_run: {
+            id: "run-123",
+            task: "task-123",
+            team: 123,
+            environment: "local",
+            status: "in_progress",
+            log_url: "https://logs.example.com/run-123",
+            error_message: null,
+            output: null,
+            state: {},
+            branch: null,
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
+            completed_at: null,
+          },
+        }),
+        repoPath: "/repo",
+      });
+
       mockTrpcAgent.prompt.mutate.mockRejectedValue(
         new Error("Internal error: process exited"),
       );
 
       await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow();
-
-      // Check that one of the updateSession calls set status to error
-      const updateCalls = mockSessionStoreSetters.updateSession.mock.calls as [
-        string,
-        { status?: string },
-      ][];
-      const errorCall = updateCalls.find(
-        ([, updates]) => updates.status === "error",
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          status: "disconnected",
+          errorMessage: expect.stringContaining("Reconnecting"),
+        }),
       );
-      expect(errorCall).toBeDefined();
-      expect(errorCall?.[0]).toBe("run-123");
     });
   });
 
@@ -836,6 +1453,58 @@ describe("SessionService", () => {
         mockSessionConfigStore.updatePersistedConfigOptionValue,
       ).toHaveBeenLastCalledWith("run-123", "mode", "default");
     });
+
+    it("routes cloud sessions through sendCommand with set_config_option", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "in_progress",
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "claude-opus-4-7",
+              options: [],
+            },
+          ],
+        }),
+      );
+      mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
+        success: true,
+      });
+
+      await service.setSessionConfigOption(
+        "task-123",
+        "model",
+        "claude-sonnet-4-6",
+      );
+
+      expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
+      expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "set_config_option",
+          params: { configId: "model", value: "claude-sonnet-4-6" },
+        }),
+      );
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        {
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "claude-sonnet-4-6",
+              options: [],
+            },
+          ],
+        },
+      );
+    });
   });
 
   describe("clearSessionError", () => {
@@ -872,6 +1541,47 @@ describe("SessionService", () => {
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalled();
     });
 
+    it("creates fresh session when initialPrompt is set (prompt never delivered)", async () => {
+      const service = getSessionService();
+      const mockSession = createMockSession({
+        status: "error",
+        initialPrompt: [{ type: "text", text: "fix the bug" }],
+      });
+      // First call returns the error session, subsequent calls return connected
+      mockSessionStoreSetters.getSessionByTaskId
+        .mockReturnValueOnce(mockSession)
+        .mockReturnValue(
+          createMockSession({
+            taskRunId: "new-run",
+            status: "connected",
+          }),
+        );
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "agent-event:new-run",
+        configOptions: [],
+      });
+      mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({
+        unsubscribe: vi.fn(),
+      });
+      mockTrpcAgent.onPermissionRequest.subscribe.mockReturnValue({
+        unsubscribe: vi.fn(),
+      });
+      mockTrpcAgent.prompt.mutate.mockResolvedValue({ stopReason: "end_turn" });
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "new-run" }),
+        appendTaskRunLog: vi.fn(),
+      });
+
+      await service.clearSessionError("task-123", "/repo");
+
+      // Should tear down old session and create a new one
+      expect(mockTrpcAgent.cancel.mutate).toHaveBeenCalledWith({
+        sessionId: "run-123",
+      });
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalled();
+    });
+
     it("handles missing session gracefully", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
@@ -879,6 +1589,92 @@ describe("SessionService", () => {
       await expect(
         service.clearSessionError("task-123", "/repo"),
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe("automatic local recovery", () => {
+    it("reconnects automatically after a subscription error", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      const mockSession = createMockSession({
+        status: "connected",
+        logUrl: "https://logs.example.com/run-123",
+      });
+
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": mockSession,
+      });
+      mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcAgent.reconnect.mutate.mockResolvedValue({
+        sessionId: "run-123",
+        channel: "agent-event:run-123",
+        configOptions: [],
+      });
+
+      await service.clearSessionError("task-123", "/repo");
+
+      const onError = mockTrpcAgent.onSessionEvent.subscribe.mock.calls[0]?.[1]
+        ?.onError as ((error: Error) => void) | undefined;
+      expect(onError).toBeDefined();
+
+      onError?.(new Error("connection dropped"));
+      await vi.runAllTimersAsync();
+
+      expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(2);
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          status: "disconnected",
+          errorMessage: expect.stringContaining("Reconnecting"),
+        }),
+      );
+
+      vi.useRealTimers();
+    });
+
+    it("shows the error screen only after automatic reconnect attempts fail", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      const mockSession = createMockSession({
+        status: "connected",
+        logUrl: "https://logs.example.com/run-123",
+      });
+
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": mockSession,
+      });
+      mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcAgent.reconnect.mutate
+        .mockResolvedValueOnce({
+          sessionId: "run-123",
+          channel: "agent-event:run-123",
+          configOptions: [],
+        })
+        .mockResolvedValue(null);
+
+      await service.clearSessionError("task-123", "/repo");
+
+      const onError = mockTrpcAgent.onSessionEvent.subscribe.mock.calls[0]?.[1]
+        ?.onError as ((error: Error) => void) | undefined;
+      expect(onError).toBeDefined();
+
+      onError?.(new Error("connection dropped"));
+      await vi.runAllTimersAsync();
+
+      expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(4);
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "error",
+          errorTitle: "Connection lost",
+          errorMessage: expect.any(String),
+        }),
+      );
+
+      vi.useRealTimers();
     });
   });
 });

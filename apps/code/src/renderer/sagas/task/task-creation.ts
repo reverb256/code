@@ -1,3 +1,7 @@
+import {
+  buildCloudPromptBlocks,
+  serializeCloudPrompt,
+} from "@features/editor/utils/cloud-prompt";
 import { buildPromptBlocks } from "@features/editor/utils/prompt-builder";
 import { DEFAULT_PANEL_IDS } from "@features/panels/constants/panelConstants";
 import { usePanelLayoutStore } from "@features/panels/store/panelLayoutStore";
@@ -17,8 +21,10 @@ import { trpcClient } from "@renderer/trpc";
 import { generateTitleAndSummary } from "@renderer/utils/generateTitle";
 import { getTaskRepository } from "@renderer/utils/repository";
 import type { ExecutionMode, Task } from "@shared/types";
+import type { CloudRunSource, PrAuthorshipMode } from "@shared/types/cloud";
+import { getGhUserTokenOrThrow } from "@utils/github";
 import { logger } from "@utils/logger";
-import { queryClient } from "@utils/queryClient";
+import { getCachedTask, queryClient } from "@utils/queryClient";
 
 const log = logger.scope("task-creation-saga");
 
@@ -32,6 +38,11 @@ async function generateTaskTitle(
   const result = await generateTitleAndSummary(description);
   if (!result?.title) return;
   const { title } = result;
+
+  if (getCachedTask(taskId)?.title_manually_set) {
+    log.debug("Skipping auto-title, user renamed task", { taskId });
+    return;
+  }
 
   try {
     await posthogClient.updateTask(taskId, { title });
@@ -61,6 +72,7 @@ export interface TaskCreationInput {
   taskId?: string;
   // For creating new task (required if no taskId)
   content?: string;
+  taskDescription?: string;
   filePaths?: string[];
   repoPath?: string;
   repository?: string | null;
@@ -73,6 +85,8 @@ export interface TaskCreationInput {
   reasoningLevel?: string;
   environmentId?: string;
   sandboxEnvironmentId?: string;
+  cloudPrAuthorshipMode?: PrAuthorshipMode;
+  cloudRunSource?: CloudRunSource;
   signalReportId?: string;
 }
 
@@ -99,6 +113,13 @@ export class TaskCreationSaga extends Saga<
   protected async execute(
     input: TaskCreationInput,
   ): Promise<TaskCreationOutput> {
+    const initialCloudPrompt =
+      input.workspaceMode === "cloud" && !input.taskId && input.content
+        ? await this.readOnlyStep("cloud_prompt_preparation", () =>
+            buildCloudPromptBlocks(input.content ?? "", input.filePaths),
+          )
+        : null;
+
     // Step 1: Get or create task
     // For new tasks, start folder registration in parallel with task creation
     // since folder_registration only needs repoPath (from input), not task.id
@@ -116,7 +137,11 @@ export class TaskCreationSaga extends Saga<
 
     // Fire-and-forget: generate a proper LLM title for new tasks
     if (!taskId) {
-      generateTaskTitle(task.id, input.content ?? "", this.deps.posthogClient);
+      generateTaskTitle(
+        task.id,
+        input.taskDescription ?? input.content ?? "",
+        this.deps.posthogClient,
+      );
     }
 
     const repoKey = getTaskRepository(task);
@@ -130,16 +155,6 @@ export class TaskCreationSaga extends Saga<
     const workspaceMode =
       input.workspaceMode ??
       (task.latest_run?.environment === "cloud" ? "cloud" : "local");
-
-    log.info("Task setup resolved", {
-      taskId: task.id,
-      isOpen: !!input.taskId,
-      repository: repoKey,
-      repoPath,
-      workspaceMode,
-      hasLatestRun: !!task.latest_run,
-      latestRunLogUrl: task.latest_run?.log_url,
-    });
 
     // Step 4: Create workspace if we have a directory
     let workspace: Workspace | null = null;
@@ -191,6 +206,7 @@ export class TaskCreationSaga extends Saga<
         worktreeName: workspaceInfo.worktree?.worktreeName ?? null,
         branchName: workspaceInfo.worktree?.branchName ?? null,
         baseBranch: workspaceInfo.worktree?.baseBranch ?? null,
+        linkedBranch: workspaceInfo.linkedBranch ?? null,
         createdAt:
           workspaceInfo.worktree?.createdAt ?? new Date().toISOString(),
       };
@@ -227,6 +243,7 @@ export class TaskCreationSaga extends Saga<
         worktreeName: null,
         branchName: null,
         baseBranch: branch,
+        linkedBranch: null,
         createdAt: new Date().toISOString(),
       };
     }
@@ -259,13 +276,33 @@ export class TaskCreationSaga extends Saga<
     if (shouldStartCloudRun) {
       task = await this.step({
         name: "cloud_run",
-        execute: () =>
-          this.deps.posthogClient.runTaskInCloud(
-            task.id,
-            branch,
-            undefined,
-            input.sandboxEnvironmentId,
-          ),
+        execute: async () => {
+          const hasGitHubRepo = !!task.repository && !!task.github_integration;
+          const prAuthorshipMode =
+            input.cloudPrAuthorshipMode ?? (hasGitHubRepo ? "user" : "bot");
+          let githubUserToken: string | undefined;
+
+          if (prAuthorshipMode === "user" && hasGitHubRepo) {
+            githubUserToken = await getGhUserTokenOrThrow();
+          }
+
+          return this.deps.posthogClient.runTaskInCloud(task.id, branch, {
+            adapter: input.adapter,
+            model: input.model,
+            reasoningLevel: input.reasoningLevel,
+            pendingUserMessage: initialCloudPrompt
+              ? serializeCloudPrompt(initialCloudPrompt)
+              : undefined,
+            sandboxEnvironmentId: input.sandboxEnvironmentId,
+            prAuthorshipMode,
+            runSource: input.cloudRunSource ?? "manual",
+            signalReportId: input.signalReportId,
+            githubUserToken,
+            initialPermissionMode:
+              input.executionMode ??
+              (input.adapter === "codex" ? "auto" : "plan"),
+          });
+        },
         rollback: async () => {
           log.info("Rolling back: cloud run (no-op)", { taskId: task.id });
         },
@@ -390,7 +427,7 @@ export class TaskCreationSaga extends Saga<
       name: "task_creation",
       execute: async () => {
         const result = await this.deps.posthogClient.createTask({
-          description: input.content ?? "",
+          description: input.taskDescription ?? input.content ?? "",
           repository: repository ?? undefined,
           github_integration:
             input.workspaceMode === "cloud"

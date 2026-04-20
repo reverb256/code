@@ -1,6 +1,14 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { Brain } from "@phosphor-icons/react";
-import { Flex, Select, Text } from "@radix-ui/themes";
+import { Brain, CaretDown } from "@phosphor-icons/react";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  MenuLabel,
+} from "@posthog/quill";
 import { flattenSelectOptions } from "../stores/sessionStore";
 
 interface ReasoningLevelSelectorProps {
@@ -25,44 +33,47 @@ export function ReasoningLevelSelector({
   const activeLevel = thoughtOption.currentValue;
   const activeLabel =
     options.find((opt) => opt.value === activeLevel)?.name ?? activeLevel;
+  const triggerLabel = `${adapter === "codex" ? "Reasoning" : "Effort"}: ${activeLabel}`;
 
   return (
-    <Select.Root
-      value={activeLevel}
-      onValueChange={(value) => onChange?.(value)}
-      disabled={disabled}
-      size="1"
-    >
-      <Select.Trigger
-        variant="ghost"
-        style={{
-          fontSize: "var(--font-size-1)",
-          color: "var(--gray-11)",
-          padding: "4px 8px",
-          marginLeft: "4px",
-          height: "auto",
-          minHeight: "unset",
-          gap: "6px",
-        }}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            disabled={disabled}
+            aria-label={triggerLabel}
+          >
+            <Brain size={14} className="text-muted-foreground" />
+            {triggerLabel}
+            <CaretDown
+              size={10}
+              weight="bold"
+              className="text-muted-foreground"
+            />
+          </Button>
+        }
+      />
+      <DropdownMenuContent
+        align="start"
+        side="top"
+        sideOffset={6}
+        className="min-w-[180px]"
       >
-        <Flex align="center" gap="1">
-          <Brain
-            size={14}
-            weight="regular"
-            style={{ color: "var(--gray-9)", flexShrink: 0 }}
-          />
-          <Text size="1">
-            {adapter === "codex" ? "Reasoning" : "Effort"}: {activeLabel}
-          </Text>
-        </Flex>
-      </Select.Trigger>
-      <Select.Content position="popper" sideOffset={4}>
-        {options.map((level) => (
-          <Select.Item key={level.value} value={level.value}>
-            {level.name}
-          </Select.Item>
-        ))}
-      </Select.Content>
-    </Select.Root>
+        <MenuLabel>{adapter === "codex" ? "Reasoning" : "Effort"}</MenuLabel>
+        <DropdownMenuRadioGroup
+          value={activeLevel}
+          onValueChange={(value) => onChange?.(value)}
+        >
+          {options.map((level) => (
+            <DropdownMenuRadioItem key={level.value} value={level.value}>
+              <span className="whitespace-nowrap">{level.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

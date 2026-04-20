@@ -214,8 +214,8 @@ export function ActionSelector({
       }}
       style={{
         outline: "none",
-        border: "1px solid var(--blue-11)",
-        background: "var(--blue-1)",
+        border: "1px solid var(--gray-6)",
+        background: "var(--gray-1)",
         borderRadius: "var(--radius-3)",
       }}
     >
@@ -260,6 +260,7 @@ export function ActionSelector({
                   isHovered={isHovered}
                   isChecked={isChecked}
                   showCheckbox={showSubmitButton}
+                  multiSelect={multiSelect}
                   customInput={customInput}
                   customInputPlaceholder={customInputPlaceholder}
                   isEditing={showInlineEdit && isSelected}
@@ -294,6 +295,7 @@ export function ActionSelector({
                   isHovered={isHovered}
                   isChecked={false}
                   showCheckbox={false}
+                  multiSelect={multiSelect}
                   customInput=""
                   customInputPlaceholder=""
                   isEditing={false}

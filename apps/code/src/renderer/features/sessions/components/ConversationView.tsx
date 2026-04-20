@@ -73,6 +73,15 @@ export function ConversationView({
   }
   const firstUserMessageId = firstUserMessageIdRef.current;
 
+  const [initialItemIds] = useState(
+    () =>
+      new Set(
+        conversationItems
+          .filter((i) => i.type === "user_message")
+          .map((i) => i.id),
+      ),
+  );
+
   const pendingPermissions = usePendingPermissionsForTask(taskId ?? "");
   const pendingPermissionsCount = pendingPermissions.size;
   const queuedMessages = useQueuedMessagesForTask(taskId);
@@ -146,7 +155,9 @@ export function ConversationView({
           return (
             <UserMessage
               content={item.content}
+              attachments={item.attachments}
               timestamp={item.timestamp}
+              animate={!initialItemIds.has(item.id)}
               sourceUrl={
                 slackThreadUrl && item.id === firstUserMessageId
                   ? slackThreadUrl
@@ -193,7 +204,7 @@ export function ConversationView({
           );
       }
     },
-    [repoPath, taskId, slackThreadUrl, firstUserMessageId],
+    [repoPath, taskId, slackThreadUrl, firstUserMessageId, initialItemIds],
   );
 
   const getItemKey = useCallback((item: ConversationItem) => item.id, []);
@@ -212,7 +223,7 @@ export function ConversationView({
         renderItem={renderItem}
         onScrollStateChange={handleScrollStateChange}
         keepMounted={mcpAppIndices}
-        className="absolute inset-0 bg-gray-1"
+        className="absolute inset-0 bg-background"
         itemClassName="mx-auto max-w-[750px] px-2 py-1.5"
         footer={
           <div className={compact ? "pb-1" : "pb-16"}>

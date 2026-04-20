@@ -1,13 +1,22 @@
-import { Combobox } from "@components/ui/combobox/Combobox";
 import { useGitInteractionStore } from "@features/git-interaction/state/gitInteractionStore";
 import { getSuggestedBranchName } from "@features/git-interaction/utils/getSuggestedBranchName";
 import { invalidateGitBranchQueries } from "@features/git-interaction/utils/gitCacheKeys";
-import { GitBranch, Plus } from "@phosphor-icons/react";
-import { Flex, Spinner, Tooltip } from "@radix-ui/themes";
+import { CaretDown, GitBranch, Plus, Spinner } from "@phosphor-icons/react";
+import {
+  Button,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxListFooter,
+  ComboboxTrigger,
+} from "@posthog/quill";
 import { useTRPC } from "@renderer/trpc";
 import { toast } from "@renderer/utils/toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 interface BranchSelectorProps {
   repoPath: string | null;
@@ -21,7 +30,11 @@ interface BranchSelectorProps {
   onBranchSelect?: (branch: string | null) => void;
   cloudBranches?: string[];
   cloudBranchesLoading?: boolean;
+  cloudBranchesFetchingMore?: boolean;
+  onCloudPickerOpen?: () => void;
+  onCloudBranchCommit?: () => void;
   taskId?: string;
+  anchor?: RefObject<HTMLElement | null>;
 }
 
 export function BranchSelector({
@@ -30,15 +43,19 @@ export function BranchSelector({
   defaultBranch,
   disabled,
   loading,
-  variant = "outline",
   workspaceMode,
   selectedBranch,
   onBranchSelect,
   cloudBranches,
   cloudBranchesLoading,
+  cloudBranchesFetchingMore,
+  onCloudPickerOpen,
+  onCloudBranchCommit,
   taskId,
+  anchor,
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
+  const localAnchorRef = useRef<HTMLButtonElement>(null);
   const trpc = useTRPC();
   const { actions } = useGitInteractionStore();
 
@@ -60,7 +77,11 @@ export function BranchSelector({
   );
 
   const branches = isCloudMode ? (cloudBranches ?? []) : localBranches;
+  const CREATE_BRANCH_ACTION = "__create_branch__";
+  const allItems = isCloudMode ? branches : [...branches, CREATE_BRANCH_ACTION];
   const effectiveLoading = loading || (isCloudMode && cloudBranchesLoading);
+  const cloudStillLoading =
+    isCloudMode && cloudBranchesLoading && branches.length === 0;
 
   const checkoutMutation = useMutation(
     trpc.git.checkoutBranch.mutationOptions({
@@ -77,7 +98,8 @@ export function BranchSelector({
     }),
   );
 
-  const handleBranchChange = (value: string) => {
+  const handleBranchChange = (value: string | null) => {
+    if (!value || value === CREATE_BRANCH_ACTION) return;
     if (isSelectionOnly) {
       onBranchSelect?.(value || null);
     } else if (value && value !== currentBranch) {
@@ -86,83 +108,110 @@ export function BranchSelector({
         branchName: value,
       });
     }
+    if (isCloudMode && value) {
+      onCloudBranchCommit?.();
+    }
     setOpen(false);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (isCloudMode && next) {
+      onCloudPickerOpen?.();
+    }
   };
 
   const displayText = effectiveLoading
     ? "Loading..."
     : (displayedBranch ?? "No branch");
 
-  const triggerContent = (
-    <Flex align="center" gap="1" style={{ minWidth: 0 }}>
-      {effectiveLoading ? (
-        <Spinner size="1" />
-      ) : (
-        <GitBranch size={16} weight="regular" style={{ flexShrink: 0 }} />
-      )}
-      <span className="combobox-trigger-text">{displayText}</span>
-    </Flex>
-  );
+  const showSpinner =
+    effectiveLoading || (isCloudMode && open && cloudBranchesFetchingMore);
+
+  const isDisabled = !!(disabled || !repoPath || cloudStillLoading);
 
   return (
-    <Tooltip content={displayedBranch} delayDuration={300}>
-      <Combobox.Root
-        value={displayedBranch ?? ""}
-        onValueChange={handleBranchChange}
-        open={open}
-        onOpenChange={setOpen}
-        size="1"
-        disabled={disabled || !repoPath}
-      >
-        <Combobox.Trigger variant={variant} placeholder="No branch">
-          {triggerContent}
-        </Combobox.Trigger>
-
-        <Combobox.Content>
-          <Combobox.Input placeholder="Search branches" />
-          <Combobox.Empty>No branches found.</Combobox.Empty>
-
-          <Combobox.Group
-            heading={isCloudMode ? "Remote branches" : "Local branches"}
+    <Combobox
+      items={allItems}
+      value={displayedBranch}
+      onValueChange={(v) => handleBranchChange(v as string | null)}
+      open={open}
+      onOpenChange={(nextOpen) => handleOpenChange(nextOpen)}
+      disabled={isDisabled}
+    >
+      <ComboboxTrigger
+        render={
+          <Button
+            ref={localAnchorRef}
+            variant="outline"
+            size="sm"
+            disabled={isDisabled}
+            aria-label="Branch"
+            title={displayedBranch ?? undefined}
           >
-            {branches.map((branch) => (
-              <Combobox.Item
-                key={branch}
-                value={branch}
-                icon={<GitBranch size={11} weight="regular" />}
-              >
-                {branch}
-              </Combobox.Item>
-            ))}
-          </Combobox.Group>
+            {showSpinner ? (
+              <Spinner size={14} className="shrink-0 animate-spin" />
+            ) : (
+              <GitBranch size={14} weight="regular" className="shrink-0" />
+            )}
+            <span className="min-w-0 truncate">{displayText}</span>
+            <CaretDown
+              size={10}
+              weight="bold"
+              className="text-muted-foreground"
+            />
+          </Button>
+        }
+      />
+      <ComboboxContent
+        anchor={anchor ?? localAnchorRef}
+        side="bottom"
+        sideOffset={6}
+        className="min-w-[240px]"
+      >
+        <ComboboxInput placeholder="Search branches..." showTrigger={false} />
 
-          {!isCloudMode && (
-            <Combobox.Footer>
-              <button
-                type="button"
-                className="combobox-footer-button"
-                onClick={() => {
-                  setOpen(false);
-                  actions.openBranch(
-                    taskId
-                      ? getSuggestedBranchName(taskId, repoPath ?? undefined)
-                      : undefined,
-                  );
-                }}
-              >
-                <Flex
-                  align="center"
-                  gap="2"
-                  style={{ color: "var(--accent-11)" }}
+        {isCloudMode && cloudBranchesFetchingMore && (
+          <div className="flex items-center gap-1 px-2 py-1.5 text-muted-foreground text-xs">
+            <Spinner size={12} className="animate-spin" />
+            Loading more ({branches.length})…
+          </div>
+        )}
+
+        <ComboboxEmpty>No branches found.</ComboboxEmpty>
+
+        <ComboboxList className="max-h-[min(14rem,calc(var(--available-height,14rem)-5rem))] pe-2">
+          {(item: string) =>
+            item === CREATE_BRANCH_ACTION ? (
+              <ComboboxListFooter key="footer">
+                <ComboboxItem
+                  value={CREATE_BRANCH_ACTION}
+                  onClick={() => {
+                    setOpen(false);
+                    actions.openBranch(
+                      taskId
+                        ? getSuggestedBranchName(taskId, repoPath ?? undefined)
+                        : undefined,
+                    );
+                  }}
                 >
                   <Plus size={11} weight="bold" />
-                  <span>Create new branch</span>
-                </Flex>
-              </button>
-            </Combobox.Footer>
-          )}
-        </Combobox.Content>
-      </Combobox.Root>
-    </Tooltip>
+                  Create new branch
+                </ComboboxItem>
+              </ComboboxListFooter>
+            ) : (
+              <ComboboxItem
+                key={item}
+                value={item}
+                title={item}
+                className="relative"
+              >
+                {item}
+              </ComboboxItem>
+            )
+          }
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }

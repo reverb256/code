@@ -1,13 +1,24 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, dialog, nativeImage, shell } from "electron";
+import type { IAppMeta } from "@posthog/platform/app-meta";
+import type { DialogSeverity, IDialog } from "@posthog/platform/dialog";
+import type { IImageProcessor } from "@posthog/platform/image-processor";
+import type { IUrlLauncher } from "@posthog/platform/url-launcher";
 import { z } from "zod";
+import { container } from "../../di/container";
+import { MAIN_TOKENS } from "../../di/tokens";
 import { getWorktreeLocation } from "../../services/settingsStore";
-import { getMainWindow } from "../context";
 import { publicProcedure, router } from "../trpc";
 
 const fsPromises = fs.promises;
+
+const getUrlLauncher = () =>
+  container.get<IUrlLauncher>(MAIN_TOKENS.UrlLauncher);
+const getDialog = () => container.get<IDialog>(MAIN_TOKENS.Dialog);
+const getAppMeta = () => container.get<IAppMeta>(MAIN_TOKENS.AppMeta);
+const getImageProcessor = () =>
+  container.get<IImageProcessor>(MAIN_TOKENS.ImageProcessor);
 
 const IMAGE_MIME_MAP: Record<string, string> = {
   png: "image/png",
@@ -39,53 +50,17 @@ const expandHomePath = (searchPath: string): string =>
 
 const MAX_IMAGE_DIMENSION = 1568;
 const JPEG_QUALITY = 85;
+const CLIPBOARD_TEMP_DIR = path.join(os.tmpdir(), "posthog-code-clipboard");
 
-interface DownscaledImage {
-  buffer: Buffer;
-  mimeType: string;
-  extension: string;
-}
-
-function downscaleImage(raw: Buffer, mimeType: string): DownscaledImage {
-  const image = nativeImage.createFromBuffer(raw);
-  if (image.isEmpty()) {
-    return {
-      buffer: raw,
-      mimeType,
-      extension: mimeType.split("/")[1] || "png",
-    };
-  }
-
-  const { width, height } = image.getSize();
-  const maxDim = Math.max(width, height);
-
-  if (maxDim <= MAX_IMAGE_DIMENSION) {
-    return {
-      buffer: raw,
-      mimeType,
-      extension: mimeType.split("/")[1] || "png",
-    };
-  }
-
-  const scale = MAX_IMAGE_DIMENSION / maxDim;
-  const newWidth = Math.round(width * scale);
-  const newHeight = Math.round(height * scale);
-  const resized = image.resize({
-    width: newWidth,
-    height: newHeight,
-    quality: "best",
-  });
-
-  const hasAlpha = mimeType === "image/png" || mimeType === "image/webp";
-  if (hasAlpha) {
-    return { buffer: resized.toPNG(), mimeType: "image/png", extension: "png" };
-  }
-
-  return {
-    buffer: resized.toJPEG(JPEG_QUALITY),
-    mimeType: "image/jpeg",
-    extension: "jpeg",
-  };
+async function createClipboardTempFilePath(
+  displayName: string,
+): Promise<string> {
+  const safeName = path.basename(displayName) || "attachment";
+  await fsPromises.mkdir(CLIPBOARD_TEMP_DIR, { recursive: true });
+  const tempDir = await fsPromises.mkdtemp(
+    path.join(CLIPBOARD_TEMP_DIR, "attachment-"),
+  );
+  return path.join(tempDir, safeName);
 }
 
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
@@ -119,21 +94,22 @@ export const osRouter = router({
    * Show directory picker dialog
    */
   selectDirectory: publicProcedure.query(async () => {
-    const win = getMainWindow();
-    if (!win) return null;
-
-    const result = await dialog.showOpenDialog(win, {
+    const paths = await getDialog().pickFile({
       title: "Select a repository folder",
-      properties: [
-        "openDirectory",
-        "createDirectory",
-        "treatPackageAsDirectory",
-      ],
+      directories: true,
+      createDirectories: true,
     });
-    if (result.canceled || !result.filePaths?.length) {
-      return null;
-    }
-    return result.filePaths[0];
+    return paths[0] ?? null;
+  }),
+
+  /**
+   * Show file picker dialog
+   */
+  selectFiles: publicProcedure.output(z.array(z.string())).query(async () => {
+    return await getDialog().pickFile({
+      title: "Select files",
+      multiple: true,
+    });
   }),
 
   /**
@@ -163,23 +139,22 @@ export const osRouter = router({
   showMessageBox: publicProcedure
     .input(z.object({ options: messageBoxOptionsSchema }))
     .mutation(async ({ input }) => {
-      const win = getMainWindow();
-      if (!win) throw new Error("Main window not available");
-
       const options = input.options;
-      const result = await dialog.showMessageBox(win, {
-        type: options?.type || "info",
+      const severity: DialogSeverity | undefined =
+        options?.type && options.type !== "none" ? options.type : undefined;
+      const response = await getDialog().confirm({
+        severity,
         title: options?.title || "PostHog Code",
         message: options?.message || "",
         detail: options?.detail,
-        buttons:
+        options:
           Array.isArray(options?.buttons) && options.buttons.length > 0
             ? options.buttons
             : ["OK"],
-        defaultId: options?.defaultId ?? 0,
-        cancelId: options?.cancelId ?? 1,
+        defaultIndex: options?.defaultId ?? 0,
+        cancelIndex: options?.cancelId ?? 1,
       });
-      return { response: result.response };
+      return { response };
     }),
 
   /**
@@ -188,7 +163,7 @@ export const osRouter = router({
   openExternal: publicProcedure
     .input(z.object({ url: z.string() }))
     .mutation(async ({ input }) => {
-      await shell.openExternal(input.url);
+      await getUrlLauncher().launch(input.url);
     }),
 
   /**
@@ -233,7 +208,7 @@ export const osRouter = router({
   /**
    * Get the application version
    */
-  getAppVersion: publicProcedure.query(() => app.getVersion()),
+  getAppVersion: publicProcedure.query(() => getAppMeta().version),
 
   /**
    * Get the worktree base location (e.g., ~/.posthog-code)
@@ -277,18 +252,18 @@ export const osRouter = router({
     .input(
       z.object({
         text: z.string(),
+        originalName: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const filename = `pasted-text-${Date.now()}.txt`;
-      const tempDir = path.join(os.tmpdir(), "posthog-code-clipboard");
-
-      await fsPromises.mkdir(tempDir, { recursive: true });
-      const filePath = path.join(tempDir, filename);
+      const displayName = path.basename(
+        input.originalName ?? "pasted-text.txt",
+      );
+      const filePath = await createClipboardTempFilePath(displayName);
 
       await fsPromises.writeFile(filePath, input.text, "utf-8");
 
-      return { path: filePath, name: "pasted-text.txt" };
+      return { path: filePath, name: displayName };
     }),
 
   /**
@@ -304,10 +279,11 @@ export const osRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const raw = Buffer.from(input.base64Data, "base64");
-      const { buffer, mimeType, extension } = downscaleImage(
+      const raw = new Uint8Array(Buffer.from(input.base64Data, "base64"));
+      const { buffer, mimeType, extension } = getImageProcessor().downscale(
         raw,
         input.mimeType,
+        { maxDimension: MAX_IMAGE_DIMENSION, jpegQuality: JPEG_QUALITY },
       );
 
       const isGenericName =
@@ -321,14 +297,9 @@ export const osRouter = router({
             /\.[^.]+$/,
             `.${extension}`,
           );
-      const baseName = displayName.replace(/\.[^.]+$/, "");
-      const filename = `${baseName}-${Date.now()}.${extension}`;
-      const tempDir = path.join(os.tmpdir(), "posthog-code-clipboard");
+      const filePath = await createClipboardTempFilePath(displayName);
 
-      await fsPromises.mkdir(tempDir, { recursive: true });
-      const filePath = path.join(tempDir, filename);
-
-      await fsPromises.writeFile(filePath, buffer);
+      await fsPromises.writeFile(filePath, Buffer.from(buffer));
 
       return { path: filePath, name: displayName, mimeType };
     }),

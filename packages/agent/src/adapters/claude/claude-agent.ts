@@ -38,13 +38,19 @@ import {
   type CanUseTool,
   getSessionMessages,
   listSessions,
+  type McpServerConfig,
+  type Options,
   type Query,
   query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
-import { POSTHOG_NOTIFICATIONS } from "../../acp-extensions";
+import {
+  isMethod,
+  POSTHOG_METHODS,
+  POSTHOG_NOTIFICATIONS,
+} from "../../acp-extensions";
 import { unreachable, withTimeout } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
@@ -109,6 +115,7 @@ export interface ClaudeAcpAgentOptions {
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
+  onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
@@ -426,11 +433,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
             this.session.lastContextWindowSize = lastContextWindowSize;
-            this.logger.debug("Context window size from result", {
-              sdkReported: contextWindows,
-              resolved: lastContextWindowSize,
-              modelId: this.session.modelId,
-            });
 
             this.session.contextSize = lastContextWindowSize;
             if (lastAssistantTotalUsage !== null) {
@@ -482,6 +484,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
             const result = handleResultMessage(message);
             if (result.error) throw result.error;
+
+            // Deliver structured output from SDK's native outputFormat
+            if (
+              message.subtype === "success" &&
+              message.structured_output != null &&
+              this.options?.onStructuredOutput
+            ) {
+              await this.options.onStructuredOutput(
+                message.structured_output as Record<string, unknown>,
+              );
+            }
 
             // For local-only commands, forward the result text to the client
             if (
@@ -638,6 +651,120 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     this.session.pendingMessages.clear();
     await this.session.query.interrupt();
+  }
+
+  /**
+   * Refresh the session between turns. Currently the only refreshable field
+   * is `mcpServers` — a resume-with-new-options reinit that bakes the servers
+   * into query() options (preserving conversation history via resume).
+   *
+   * This is an `extMethod` (request/response), not `extNotification`, so the
+   * caller can await completion before sending the next prompt. The sandbox
+   * agent-server uses this on pre-prompt TTL checks.
+   *
+   * Why resume+rebuild instead of query.setMcpServers()?
+   * setMcpServers() does NOT always overwrite servers installed by local/plugin
+   * config — it can non-deterministically surface either the config-provided
+   * server or the plugin-installed one. In the sandbox, repos may have Claude
+   * plugins with their own MCPs, and we want the CLI-supplied set to fully win.
+   * Passing mcpServers via query() options (as a "managed"/static set) has that
+   * overwrite guarantee, so we tear down the current Query and construct a new
+   * one with resume.
+   *
+   * Caller contract: only call REFRESH_SESSION between turns (no prompt in flight).
+   */
+  async extMethod(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      throw RequestError.methodNotFound(method);
+    }
+
+    // Trust boundary: refresh is only safe when the caller is trusted infra
+    // (e.g. the sandbox agent-server). Do not route this method from
+    // untrusted clients — parseMcpServers does no URL/command validation.
+    if (params.mcpServers === undefined) {
+      throw new RequestError(
+        -32602,
+        "refresh_session requires at least one refreshable field (e.g. mcpServers)",
+      );
+    }
+    if (!Array.isArray(params.mcpServers)) {
+      throw new RequestError(
+        -32602,
+        "refresh_session: mcpServers must be an array",
+      );
+    }
+
+    const mcpServers = parseMcpServers(
+      params as Pick<NewSessionRequest, "mcpServers">,
+    );
+    await this.refreshSession(mcpServers);
+    return { refreshed: true };
+  }
+
+  private async refreshSession(
+    mcpServers: Record<string, McpServerConfig>,
+  ): Promise<void> {
+    const prev = this.session;
+    if (prev.promptRunning) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session while a prompt turn is in flight",
+      );
+    }
+    if (prev.modelId && !supportsMcpInjection(prev.modelId)) {
+      throw new RequestError(
+        -32002,
+        `Model ${prev.modelId} does not support MCP injection; cannot refresh`,
+      );
+    }
+
+    this.logger.info("Refreshing session with fresh MCP servers", {
+      serverCount: Object.keys(mcpServers).length,
+      sessionId: this.sessionId,
+    });
+
+    // Abort FIRST so any stuck in-flight HTTP request unblocks — otherwise
+    // interrupt() can deadlock waiting on an API call that never returns.
+    // We allocate a fresh controller for the new Query below so aborting
+    // the old one doesn't poison it.
+    prev.abortController.abort();
+    await prev.query.interrupt();
+    prev.input.end();
+
+    // Reuse every option from the running session; swap mcpServers, re-root
+    // identity on `resume` instead of `sessionId`, and give the new Query a
+    // fresh AbortController.
+    const newAbortController = new AbortController();
+    const { sessionId: _drop, ...rest } = prev.queryOptions;
+    const newOptions: Options = {
+      ...rest,
+      mcpServers,
+      resume: this.sessionId,
+      forkSession: false,
+      abortController: newAbortController,
+    };
+
+    const newInput = new Pushable<SDKUserMessage>();
+    const newQuery = query({ prompt: newInput, options: newOptions });
+
+    prev.query = newQuery;
+    prev.input = newInput;
+    prev.queryOptions = newOptions;
+    prev.abortController = newAbortController;
+
+    const result = await withTimeout(
+      newQuery.initializationResult(),
+      SESSION_VALIDATION_TIMEOUT_MS,
+    );
+    if (result.result === "timeout") {
+      throw new Error(`Session refresh timed out for ${this.sessionId}`);
+    }
+
+    // Re-fetch MCP tool metadata + slash commands — the server list changed.
+    this.deferBackgroundFetches(newQuery);
   }
 
   async unstable_setSessionModel(
@@ -825,7 +952,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       : {};
     const systemPrompt = buildSystemPrompt(meta?.systemPrompt);
 
-    this.logger.info(isResume ? "Resuming session" : "Creating new session", {
+    // Configure structured output via SDK's native outputFormat
+    const outputFormat =
+      meta?.jsonSchema && this.options?.onStructuredOutput
+        ? { type: "json_schema" as const, schema: meta.jsonSchema }
+        : undefined;
+
+    this.logger.debug(isResume ? "Resuming session" : "Creating new session", {
       sessionId,
       taskId,
       taskRunId: meta?.taskRunId,
@@ -854,6 +987,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ...(meta?.additionalRoots ?? []),
       ],
       disableBuiltInTools: meta?.disableBuiltInTools,
+      outputFormat,
       settingsManager,
       onModeChange: this.createOnModeChange(),
       onProcessSpawned: this.options?.onProcessSpawned,
@@ -893,13 +1027,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
     this.session = session;
     this.sessionId = sessionId;
-
-    this.logger.info(
-      isResume
-        ? "Session query initialized, awaiting resumption"
-        : "Session query initialized, awaiting initialization",
-      { sessionId, taskId, taskRunId: meta?.taskRunId },
-    );
 
     if (isResume) {
       // Resume must block on initialization to validate the session is still alive.
@@ -1026,17 +1153,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
     }
-
-    this.logger.info(
-      isResume
-        ? "Session resumed successfully"
-        : "Session created successfully",
-      {
-        sessionId,
-        taskId,
-        taskRunId: meta?.taskRunId,
-      },
-    );
 
     return { sessionId, modes, models, configOptions };
   }
@@ -1273,7 +1389,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
    * Both populate caches used later — neither is needed to return configOptions.
    */
   private deferBackgroundFetches(q: Query): void {
-    this.logger.info("Starting background fetches (commands + MCP metadata)");
     Promise.all([
       new Promise<void>((resolve) => setTimeout(resolve, 10)).then(() =>
         this.sendAvailableCommandsUpdate(),

@@ -1,3 +1,4 @@
+import { TourHighlight } from "@components/TourHighlight";
 import { EnvironmentSelector } from "@features/environments/components/EnvironmentSelector";
 import { FolderPicker } from "@features/folder-picker/components/FolderPicker";
 import { GitHubRepoPicker } from "@features/folder-picker/components/GitHubRepoPicker";
@@ -10,30 +11,32 @@ import {
   createBranch,
   getBranchNameInputState,
 } from "@features/git-interaction/utils/branchCreation";
-import type { MessageEditorHandle } from "@features/message-editor/components/MessageEditor";
-import { ModeIndicatorInput } from "@features/message-editor/components/ModeIndicatorInput";
+import { PromptInput } from "@features/message-editor/components/PromptInput";
+import { useTaskInputHistoryStore } from "@features/message-editor/stores/taskInputHistoryStore";
+import type { EditorHandle } from "@features/message-editor/types";
 import { DropZoneOverlay } from "@features/sessions/components/DropZoneOverlay";
-import {
-  cycleModeOption,
-  getCurrentModeFromConfigOptions,
-} from "@features/sessions/stores/sessionStore";
+import { ReasoningLevelSelector } from "@features/sessions/components/ReasoningLevelSelector";
+import { UnifiedModelSelector } from "@features/sessions/components/UnifiedModelSelector";
+import { getCurrentModeFromConfigOptions } from "@features/sessions/stores/sessionStore";
 import type { AgentAdapter } from "@features/settings/stores/settingsStore";
 import { useSettingsStore } from "@features/settings/stores/settingsStore";
 import { useAutoFocusOnTyping } from "@hooks/useAutoFocusOnTyping";
+import { useConnectivity } from "@hooks/useConnectivity";
 import {
   useGithubBranches,
   useRepositoryIntegration,
 } from "@hooks/useIntegrations";
+import { ButtonGroup } from "@posthog/quill";
 import { Flex, Text } from "@radix-ui/themes";
 import { useAuthStore } from "@renderer/features/auth/stores/authStore";
-import { useTRPC } from "@renderer/trpc/client";
+import { useDraftStore } from "@renderer/features/message-editor/stores/draftStore";
+import { trpcClient, useTRPC } from "@renderer/trpc/client";
 import { useNavigationStore } from "@stores/navigationStore";
 import { useQuery } from "@tanstack/react-query";
+import { getFilePath } from "@utils/getFilePath";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useTaskCreation } from "../hooks/useTaskCreation";
-import { TaskInputEditor } from "./TaskInputEditor";
 import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 
 const DOT_FILL = "var(--gray-6)";
@@ -68,8 +71,9 @@ export function TaskInput({
     lastUsedInitialTaskMode,
   } = useSettingsStore();
 
-  const editorRef = useRef<MessageEditorHandle>(null);
+  const editorRef = useRef<EditorHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonGroupRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
 
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
@@ -102,7 +106,7 @@ export function TaskInput({
   const setAdapter = (newAdapter: AgentAdapter) =>
     setLastUsedAdapter(newAdapter);
 
-  const { githubIntegration, repositories, isLoadingRepos } =
+  const { repositories, getIntegrationIdForRepo, isLoadingRepos } =
     useRepositoryIntegration();
   const [selectedRepository, setSelectedRepository] = useState<string | null>(
     () => lastUsedCloudRepository?.toLowerCase() ?? null,
@@ -115,8 +119,17 @@ export function TaskInput({
   const { currentBranch, branchLoading, defaultBranch } =
     useGitQueries(selectedDirectory);
 
-  const { data: cloudBranchData, isPending: cloudBranchesLoading } =
-    useGithubBranches(githubIntegration?.id, selectedCloudRepository);
+  const selectedIntegrationId = selectedCloudRepository
+    ? getIntegrationIdForRepo(selectedCloudRepository)
+    : undefined;
+
+  const {
+    data: cloudBranchData,
+    isPending: cloudBranchesLoading,
+    isFetchingMore: cloudBranchesFetchingMore,
+    pauseLoadingMore: pauseCloudBranchesLoading,
+    resumeLoadingMore: resumeCloudBranchesLoading,
+  } = useGithubBranches(selectedIntegrationId, selectedCloudRepository);
   const cloudBranches = cloudBranchData?.branches;
   const cloudDefaultBranch = cloudBranchData?.defaultBranch ?? null;
 
@@ -184,12 +197,7 @@ export function TaskInput({
   }, [lastUsedCloudRepository, selectedRepository]);
 
   useEffect(() => {
-    if (
-      isLoadingRepos ||
-      !githubIntegration ||
-      !selectedRepository ||
-      selectedCloudRepository
-    ) {
+    if (isLoadingRepos || !selectedRepository || selectedCloudRepository) {
       return;
     }
 
@@ -198,7 +206,6 @@ export function TaskInput({
       setLastUsedCloudRepository(null);
     }
   }, [
-    githubIntegration,
     isLoadingRepos,
     lastUsedCloudRepository,
     selectedCloudRepository,
@@ -264,7 +271,7 @@ export function TaskInput({
     editorRef,
     selectedDirectory,
     selectedRepository: selectedCloudRepository,
-    githubIntegrationId: githubIntegration?.id,
+    githubIntegrationId: selectedIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
     editorIsEmpty,
@@ -280,27 +287,64 @@ export function TaskInput({
         : undefined,
   });
 
-  const handleCycleMode = useCallback(() => {
-    const nextValue = cycleModeOption(modeOption, allowBypassPermissions);
-    if (nextValue && modeOption) {
-      setConfigOption(modeOption.id, nextValue);
-    }
-  }, [modeOption, allowBypassPermissions, setConfigOption]);
-
-  // Global shift+tab to cycle mode regardless of focus
-  useHotkeys(
-    "shift+tab",
-    (e) => {
-      e.preventDefault();
-      handleCycleMode();
+  const handleModeChange = useCallback(
+    (value: string) => {
+      if (modeOption) {
+        setConfigOption(modeOption.id, value);
+      }
     },
-    {
-      enableOnFormTags: true,
-      enableOnContentEditable: true,
-      enabled: !!modeOption,
-    },
-    [handleCycleMode, modeOption],
+    [modeOption, setConfigOption],
   );
+
+  const handleModelChange = useCallback(
+    (value: string) => {
+      if (modelOption) {
+        setConfigOption(modelOption.id, value);
+      }
+    },
+    [modelOption, setConfigOption],
+  );
+
+  const handleThoughtChange = useCallback(
+    (value: string) => {
+      if (thoughtOption) {
+        setConfigOption(thoughtOption.id, value);
+      }
+    },
+    [thoughtOption, setConfigOption],
+  );
+
+  const { isOnline } = useConnectivity();
+  const promptSessionId = sessionId;
+
+  // Populate command list for @ file mentions + / skills on mount
+  useEffect(() => {
+    let cancelled = false;
+    trpcClient.skills.list.query().then((skills) => {
+      if (cancelled) return;
+      useDraftStore.getState().actions.setCommands(
+        promptSessionId,
+        skills.map((s) => ({ name: s.name, description: s.description })),
+      );
+    });
+    return () => {
+      cancelled = true;
+      useDraftStore.getState().actions.clearCommands(promptSessionId);
+    };
+  }, [promptSessionId]);
+
+  const hasHistory = useTaskInputHistoryStore((s) => s.prompts.length > 0);
+  const getPromptHistory = useCallback(
+    () => useTaskInputHistoryStore.getState().prompts,
+    [],
+  );
+  const hints = [
+    "@ to add files",
+    "/ for skills",
+    hasHistory ? "\u2191\u2193 for history" : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   useAutoFocusOnTyping(editorRef, isCreatingTask);
 
@@ -341,7 +385,7 @@ export function TaskInput({
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const filePath = (file as File & { path?: string }).path;
+      const filePath = getFilePath(file);
       if (filePath) {
         editorRef.current?.addAttachment({
           id: filePath,
@@ -361,7 +405,6 @@ export function TaskInput({
         position: "relative",
         height: "100%",
         width: "100%",
-        overflow: "hidden",
       }}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -408,7 +451,7 @@ export function TaskInput({
         </svg>
         <Flex
           direction="column"
-          gap="4"
+          gap="2"
           style={{
             width: "100%",
             maxWidth: "600px",
@@ -416,56 +459,13 @@ export function TaskInput({
             zIndex: 1,
           }}
         >
-          <Flex
-            gap="2"
-            align="center"
-            style={{ minWidth: 0, overflow: "hidden" }}
-          >
-            {workspaceMode === "cloud" ? (
-              <GitHubRepoPicker
-                value={selectedRepository}
-                onChange={handleRepositorySelect}
-                repositories={repositories}
-                isLoading={isLoadingRepos}
-                placeholder="Select repository..."
-                size="1"
-                disabled={isCreatingTask}
-              />
-            ) : (
-              <FolderPicker
-                value={selectedDirectory}
-                onChange={setSelectedDirectory}
-                placeholder="Select repository..."
-                size="1"
-              />
-            )}
+          <Flex gap="2" align="center" style={{ minWidth: 0 }}>
             <WorkspaceModeSelect
               value={workspaceMode}
               onChange={setWorkspaceMode}
               selectedCloudEnvironmentId={selectedCloudEnvId}
               onCloudEnvironmentChange={setSelectedCloudEnvId}
               size="1"
-            />
-            <BranchSelector
-              repoPath={
-                workspaceMode === "cloud"
-                  ? selectedCloudRepository
-                  : selectedDirectory
-              }
-              currentBranch={currentBranch}
-              defaultBranch={
-                workspaceMode === "cloud" ? cloudDefaultBranch : defaultBranch
-              }
-              disabled={
-                isCreatingTask ||
-                (workspaceMode === "cloud" && !selectedCloudRepository)
-              }
-              loading={branchLoading}
-              workspaceMode={workspaceMode}
-              selectedBranch={selectedBranch}
-              onBranchSelect={setSelectedBranch}
-              cloudBranches={cloudBranches}
-              cloudBranchesLoading={cloudBranchesLoading}
             />
             {workspaceMode === "worktree" && (
               <EnvironmentSelector
@@ -475,6 +475,53 @@ export function TaskInput({
                 disabled={isCreatingTask}
               />
             )}
+            <ButtonGroup ref={buttonGroupRef}>
+              {workspaceMode === "cloud" ? (
+                <GitHubRepoPicker
+                  value={selectedRepository}
+                  onChange={handleRepositorySelect}
+                  repositories={repositories}
+                  isLoading={isLoadingRepos}
+                  placeholder="Select repository..."
+                  size="1"
+                  disabled={isCreatingTask}
+                  anchor={buttonGroupRef}
+                />
+              ) : (
+                <FolderPicker
+                  value={selectedDirectory}
+                  onChange={setSelectedDirectory}
+                  placeholder="Select repository..."
+                  size="1"
+                  anchor={buttonGroupRef}
+                />
+              )}
+              <BranchSelector
+                repoPath={
+                  workspaceMode === "cloud"
+                    ? selectedCloudRepository
+                    : selectedDirectory
+                }
+                currentBranch={currentBranch}
+                defaultBranch={
+                  workspaceMode === "cloud" ? cloudDefaultBranch : defaultBranch
+                }
+                disabled={
+                  isCreatingTask ||
+                  (workspaceMode === "cloud" && !selectedCloudRepository)
+                }
+                loading={branchLoading}
+                workspaceMode={workspaceMode}
+                selectedBranch={selectedBranch}
+                onBranchSelect={setSelectedBranch}
+                cloudBranches={cloudBranches}
+                cloudBranchesLoading={cloudBranchesLoading}
+                cloudBranchesFetchingMore={cloudBranchesFetchingMore}
+                onCloudPickerOpen={resumeCloudBranchesLoading}
+                onCloudBranchCommit={pauseCloudBranchesLoading}
+                anchor={buttonGroupRef}
+              />
+            </ButtonGroup>
             {cloudRegion === "dev" && (
               <Flex align="center" gap="1" className="shrink-0">
                 <span
@@ -488,35 +535,49 @@ export function TaskInput({
             )}
           </Flex>
 
-          <TaskInputEditor
+          <PromptInput
             ref={editorRef}
-            sessionId={sessionId}
+            sessionId={promptSessionId}
+            placeholder={`What do you want to ship? ${hints}`}
+            disabled={isCreatingTask}
+            isLoading={isCreatingTask}
+            autoFocus
+            clearOnSubmit={false}
+            submitDisabledExternal={!canSubmit || isCreatingTask || !isOnline}
             repoPath={selectedDirectory}
-            isCreatingTask={isCreatingTask}
-            canSubmit={canSubmit}
-            onSubmit={handleSubmit}
-            hasDirectory={
-              workspaceMode === "cloud"
-                ? !!selectedCloudRepository
-                : !!selectedDirectory
-            }
-            directoryTooltip={
-              workspaceMode === "cloud"
-                ? "Select a repository first"
-                : "Select a folder first"
-            }
-            onEmptyChange={setEditorIsEmpty}
-            adapter={adapter}
-            modelOption={modelOption}
-            thoughtOption={thoughtOption}
-            onConfigOptionChange={setConfigOption}
-            onAdapterChange={setAdapter}
-            isLoading={isPreviewLoading}
-          />
-
-          <ModeIndicatorInput
             modeOption={modeOption}
-            onCycleMode={handleCycleMode}
+            onModeChange={handleModeChange}
+            allowBypassPermissions={allowBypassPermissions}
+            enableCommands
+            enableBashMode={false}
+            modelSelector={
+              <TourHighlight active={false} opaque>
+                <UnifiedModelSelector
+                  modelOption={modelOption}
+                  adapter={adapter ?? "claude"}
+                  onAdapterChange={setAdapter}
+                  disabled={isCreatingTask}
+                  isConnecting={isPreviewLoading}
+                  onModelChange={handleModelChange}
+                />
+              </TourHighlight>
+            }
+            reasoningSelector={
+              !isPreviewLoading && (
+                <ReasoningLevelSelector
+                  thoughtOption={thoughtOption}
+                  adapter={adapter}
+                  onChange={handleThoughtChange}
+                  disabled={isCreatingTask}
+                />
+              )
+            }
+            getPromptHistory={getPromptHistory}
+            onEmptyChange={setEditorIsEmpty}
+            onSubmitClick={handleSubmit}
+            onSubmit={() => {
+              if (canSubmit) handleSubmit();
+            }}
           />
         </Flex>
       </Flex>

@@ -2,16 +2,14 @@ import { TourHighlight } from "@components/TourHighlight";
 import { FolderPicker } from "@features/folder-picker/components/FolderPicker";
 import { GitHubRepoPicker } from "@features/folder-picker/components/GitHubRepoPicker";
 import { BranchSelector } from "@features/git-interaction/components/BranchSelector";
-import type { MessageEditorHandle } from "@features/message-editor/components/MessageEditor";
-import { ModeIndicatorInput } from "@features/message-editor/components/ModeIndicatorInput";
+import { PromptInput } from "@features/message-editor/components/PromptInput";
 import { useDraftStore } from "@features/message-editor/stores/draftStore";
+import type { EditorHandle } from "@features/message-editor/types";
 import { useOnboardingStore } from "@features/onboarding/stores/onboardingStore";
-import {
-  cycleModeOption,
-  getCurrentModeFromConfigOptions,
-} from "@features/sessions/stores/sessionStore";
+import { ReasoningLevelSelector } from "@features/sessions/components/ReasoningLevelSelector";
+import { UnifiedModelSelector } from "@features/sessions/components/UnifiedModelSelector";
+import { getCurrentModeFromConfigOptions } from "@features/sessions/stores/sessionStore";
 import { useSettingsStore } from "@features/settings/stores/settingsStore";
-import { TaskInputEditor } from "@features/task-detail/components/TaskInputEditor";
 import { WorkspaceModeSelect } from "@features/task-detail/components/WorkspaceModeSelect";
 import { usePreviewConfig } from "@features/task-detail/hooks/usePreviewConfig";
 import { useTaskCreation } from "@features/task-detail/hooks/useTaskCreation";
@@ -29,7 +27,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
 import { useTutorialTour } from "../hooks/useTutorialTour";
 import { TutorialHedgehog } from "./TutorialHedgehog";
 
@@ -41,9 +38,9 @@ const HEDGEHOG_MESSAGES: Record<string, string> = {
   "select-worktree":
     "Great choice! Now pick Worktree from the workspace mode dropdown — it creates a copy of your project to work in parallel.",
   "select-model":
-    "Now pick your AI model — try selecting Claude Opus 4.6 for the most capable option!",
+    "Now pick your AI model — try selecting Claude Opus 4.7 for the most capable option!",
   "explain-mode":
-    "Press Shift+Tab to cycle through execution modes like Plan, Code, and more.",
+    "Open the mode menu in the prompt input to switch between Plan, Code, and other execution modes.",
   "auto-fill-prompt":
     "I've written your first task prompt — it'll set up PostHog based on the signals you enabled. Press Next when you're ready!",
   "submit-task":
@@ -74,7 +71,7 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
     hasNextButton,
   } = useTutorialTour();
 
-  const editorRef = useRef<MessageEditorHandle>(null);
+  const editorRef = useRef<EditorHandle>(null);
 
   // Clear any leftover draft and delay content until the hedgehog has animated in
   const [contentVisible, setContentVisible] = useState(false);
@@ -85,7 +82,7 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
   }, []);
 
   // GitHub repos
-  const { githubIntegration, repositories, isLoadingRepos } =
+  const { repositories, getIntegrationIdForRepo, isLoadingRepos } =
     useRepositoryIntegration();
   const [selectedRepository, setSelectedRepository] = useState<string | null>(
     null,
@@ -98,8 +95,17 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
   >("local");
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
-  const { data: cloudBranchData, isPending: cloudBranchesLoading } =
-    useGithubBranches(githubIntegration?.id, selectedRepository);
+  const selectedIntegrationId = selectedRepository
+    ? getIntegrationIdForRepo(selectedRepository)
+    : undefined;
+
+  const {
+    data: cloudBranchData,
+    isPending: cloudBranchesLoading,
+    isFetchingMore: cloudBranchesFetchingMore,
+    pauseLoadingMore: pauseCloudBranchesLoading,
+    resumeLoadingMore: resumeCloudBranchesLoading,
+  } = useGithubBranches(selectedIntegrationId, selectedRepository);
   const cloudBranches = cloudBranchData?.branches;
   const cloudDefaultBranch = cloudBranchData?.defaultBranch ?? null;
 
@@ -123,7 +129,7 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
     editorRef,
     selectedDirectory,
     selectedRepository,
-    githubIntegrationId: githubIntegration?.id,
+    githubIntegrationId: selectedIntegrationId,
     workspaceMode,
     branch: selectedBranch,
     editorIsEmpty,
@@ -193,26 +199,25 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
     [subStep, advance],
   );
 
-  // Shift+tab mode cycling (only active during explain-mode step)
-  const handleCycleMode = useCallback(() => {
-    const nextValue = cycleModeOption(modeOption, allowBypassPermissions);
-    if (nextValue && modeOption) {
-      setConfigOption(modeOption.id, nextValue);
-    }
-  }, [modeOption, allowBypassPermissions, setConfigOption]);
+  const handleModeChange = useCallback(
+    (value: string) => {
+      if (modeOption) {
+        setConfigOption(modeOption.id, value);
+      }
+      if (subStep === "explain-mode") {
+        advance();
+      }
+    },
+    [modeOption, setConfigOption, subStep, advance],
+  );
 
-  useHotkeys(
-    "shift+tab",
-    (e) => {
-      e.preventDefault();
-      handleCycleMode();
+  const handleReasoningChange = useCallback(
+    (value: string) => {
+      if (thoughtOption) {
+        setConfigOption(thoughtOption.id, value);
+      }
     },
-    {
-      enableOnFormTags: true,
-      enableOnContentEditable: true,
-      enabled: !!modeOption && subStep === "explain-mode",
-    },
-    [handleCycleMode, modeOption, subStep],
+    [thoughtOption, setConfigOption],
   );
 
   // Submit and complete onboarding
@@ -355,16 +360,20 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
                   onBranchSelect={setSelectedBranch}
                   cloudBranches={cloudBranches}
                   cloudBranchesLoading={cloudBranchesLoading}
+                  cloudBranchesFetchingMore={cloudBranchesFetchingMore}
+                  onCloudPickerOpen={resumeCloudBranchesLoading}
+                  onCloudBranchCommit={pauseCloudBranchesLoading}
                 />
               </TourHighlight>
             </Flex>
 
-            {/* Row 2: Editor — opaque when a child (model/submit) is the active highlight */}
+            {/* Row 2: Prompt input — editor + toolbar + mode dropdown */}
             <TourHighlight
               active={isHighlighted("editor")}
               opaque={
                 isHighlighted("model-selector") ||
-                isHighlighted("submit-button")
+                isHighlighted("submit-button") ||
+                isHighlighted("mode-indicator")
               }
               dimWhenInactive={isTourActive}
               fullWidth
@@ -375,58 +384,51 @@ export function TutorialStep({ onComplete, onBack }: TutorialStepProps) {
                   pointerEvents: editorInteractive ? "auto" : "none",
                 }}
               >
-                <TaskInputEditor
+                <PromptInput
                   ref={editorRef}
                   sessionId="tutorial-input"
-                  repoPath=""
-                  isCreatingTask={isCreatingTask || subStep === "navigating"}
-                  canSubmit={
-                    isEnabled("submit-button") && canSubmit && !isCreatingTask
-                  }
-                  onSubmit={handleTutorialSubmit}
-                  hasDirectory={!!(selectedRepository || selectedDirectory)}
-                  directoryTooltip="Select a repository first"
-                  onEmptyChange={setEditorIsEmpty}
-                  adapter="claude"
-                  modelOption={modelOption}
-                  thoughtOption={thoughtOption}
-                  onConfigOptionChange={(configId, value) => {
-                    setConfigOption(configId, value);
-                    if (configId === modelOption?.id) {
-                      handleModelChange(value);
-                    }
-                  }}
-                  onAdapterChange={() => {}}
+                  placeholder="What do you want to ship?"
+                  disabled={isCreatingTask || subStep === "navigating"}
                   isLoading={isPreviewLoading}
-                  autoFocus={false}
-                  tourHighlight={
-                    isHighlighted("model-selector")
-                      ? "model-selector"
-                      : isHighlighted("submit-button")
-                        ? "submit-button"
-                        : null
+                  submitDisabledExternal={
+                    !isEnabled("submit-button") || !canSubmit || isCreatingTask
                   }
-                />
-              </div>
-            </TourHighlight>
-
-            {/* Row 3: Mode indicator */}
-            <TourHighlight
-              active={isHighlighted("mode-indicator")}
-              dimWhenInactive={isTourActive}
-              fullWidth
-            >
-              <div
-                style={{
-                  width: "100%",
-                  pointerEvents: subStep === "explain-mode" ? "auto" : "none",
-                }}
-              >
-                <ModeIndicatorInput
+                  repoPath=""
                   modeOption={modeOption}
-                  onCycleMode={
-                    subStep === "explain-mode" ? handleCycleMode : undefined
+                  onModeChange={handleModeChange}
+                  allowBypassPermissions={allowBypassPermissions}
+                  enableBashMode={false}
+                  modelSelector={
+                    <TourHighlight
+                      active={isHighlighted("model-selector")}
+                      opaque
+                    >
+                      <UnifiedModelSelector
+                        modelOption={modelOption}
+                        adapter="claude"
+                        onAdapterChange={() => {}}
+                        onModelChange={handleModelChange}
+                        disabled={isCreatingTask}
+                        isConnecting={isPreviewLoading}
+                      />
+                    </TourHighlight>
                   }
+                  reasoningSelector={
+                    !isPreviewLoading && (
+                      <ReasoningLevelSelector
+                        thoughtOption={thoughtOption}
+                        adapter="claude"
+                        onChange={handleReasoningChange}
+                        disabled={isCreatingTask}
+                      />
+                    )
+                  }
+                  tourHighlightSubmit={isHighlighted("submit-button")}
+                  onEmptyChange={setEditorIsEmpty}
+                  onSubmitClick={handleTutorialSubmit}
+                  onSubmit={() => {
+                    if (canSubmit) handleTutorialSubmit();
+                  }}
                 />
               </div>
             </TourHighlight>
