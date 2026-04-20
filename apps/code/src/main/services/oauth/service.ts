@@ -1,14 +1,16 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import type { Socket } from "node:net";
+import type { IMainWindow } from "@posthog/platform/main-window";
+import type { IUrlLauncher } from "@posthog/platform/url-launcher";
 import {
-  getCloudUrlFromRegion,
   getOauthClientIdFromRegion,
   OAUTH_SCOPES,
 } from "@shared/constants/oauth";
-import { shell } from "electron";
+import { getCloudUrlFromRegion } from "@shared/utils/urls";
 import { inject, injectable } from "inversify";
 import { MAIN_TOKENS } from "../../di/tokens";
+import { isDevBuild } from "../../utils/env";
 import { logger } from "../../utils/logger";
 import type { DeepLinkService } from "../deep-link/service";
 import type {
@@ -24,9 +26,6 @@ const log = logger.scope("oauth-service");
 const PROTOCOL = "posthog-code";
 const OAUTH_TIMEOUT_MS = 180_000; // 3 minutes
 const DEV_CALLBACK_PORT = 8237;
-
-// Use HTTP callback in development, deep link in production
-const IS_DEV = process.defaultApp || false;
 
 interface OAuthConfig {
   scopes: string[];
@@ -50,12 +49,15 @@ export class OAuthService {
   constructor(
     @inject(MAIN_TOKENS.DeepLinkService)
     private readonly deepLinkService: DeepLinkService,
+    @inject(MAIN_TOKENS.UrlLauncher)
+    private readonly urlLauncher: IUrlLauncher,
+    @inject(MAIN_TOKENS.MainWindow)
+    private readonly mainWindow: IMainWindow,
   ) {
     // Register OAuth callback handler for deep links
     this.deepLinkService.registerHandler("callback", (_path, searchParams) =>
       this.handleOAuthCallback(searchParams),
     );
-    log.info("Registered OAuth callback handler for deep links");
   }
 
   private handleOAuthCallback(searchParams: URLSearchParams): boolean {
@@ -63,8 +65,15 @@ export class OAuthService {
     const error = searchParams.get("error");
 
     if (!this.pendingFlow) {
-      log.warn("Received OAuth callback but no pending flow");
-      return false;
+      // Same deep link as desktop sign-in (`posthog-code://callback`), but auth finished in
+      // the browser (e.g. GitHub on PostHog Cloud) — refocus so the user lands back in Code.
+      log.info(
+        "OAuth callback deep link with no in-app flow — refocusing (e.g. return from web auth)",
+      );
+      log.info("oauth callback deep link (no in-app flow) — focusing window");
+      if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+      this.mainWindow.focus();
+      return true;
     }
 
     const { resolve, reject, timeoutId } = this.pendingFlow;
@@ -89,7 +98,7 @@ export class OAuthService {
    * Get the redirect URI based on environment.
    */
   private getRedirectUri(): string {
-    return IS_DEV
+    return isDevBuild()
       ? `http://localhost:${DEV_CALLBACK_PORT}/callback`
       : `${PROTOCOL}://callback`;
   }
@@ -257,7 +266,7 @@ export class OAuthService {
       };
 
       // Open the browser for authentication
-      shell.openExternal(authUrl).catch((error) => {
+      this.urlLauncher.launch(authUrl).catch((error) => {
         clearTimeout(timeoutId);
         this.pendingFlow = null;
         reject(new Error(`Failed to open browser: ${error.message}`));
@@ -342,7 +351,7 @@ export class OAuthService {
           `Dev OAuth callback server listening on port ${DEV_CALLBACK_PORT}`,
         );
         // Open the browser for authentication
-        shell.openExternal(authUrl).catch((error) => {
+        this.urlLauncher.launch(authUrl).catch((error) => {
           this.cleanupHttpServer();
           reject(new Error(`Failed to open browser: ${error.message}`));
         });
@@ -470,7 +479,7 @@ export class OAuthService {
     codeVerifier: string,
     authUrl: string,
   ): Promise<StartFlowOutput> {
-    const code = IS_DEV
+    const code = isDevBuild()
       ? await this.waitForHttpCallback(codeVerifier, config, authUrl)
       : await this.waitForDeepLinkCallback(codeVerifier, config, authUrl);
 
@@ -498,6 +507,6 @@ export class OAuthService {
    * Open an external URL in the default browser.
    */
   public async openExternalUrl(url: string): Promise<void> {
-    await shell.openExternal(url);
+    await this.urlLauncher.launch(url);
   }
 }

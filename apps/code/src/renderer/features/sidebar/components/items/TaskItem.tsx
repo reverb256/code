@@ -3,15 +3,14 @@ import { Tooltip } from "@components/ui/Tooltip";
 import type { WorkspaceMode } from "@main/services/workspace/schemas";
 import {
   Archive,
-  ArrowsClockwise,
-  ArrowsSplit,
-  BellRinging,
+  ChatCircle,
+  Circle,
   Cloud as CloudIcon,
-  Laptop as LaptopIcon,
+  HandPalm,
   Pause,
   PushPin,
 } from "@phosphor-icons/react";
-import { selectIsFocusedOnWorktree, useFocusStore } from "@stores/focusStore";
+import { isTerminalStatus, type TaskRunStatus } from "@shared/types";
 import { formatRelativeTimeShort } from "@utils/time";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SidebarItem } from "../SidebarItem";
@@ -28,12 +27,7 @@ interface TaskItemProps {
   isPinned?: boolean;
   isSuspended?: boolean;
   needsPermission?: boolean;
-  taskRunStatus?:
-    | "started"
-    | "in_progress"
-    | "completed"
-    | "failed"
-    | "cancelled";
+  taskRunStatus?: TaskRunStatus;
   timestamp?: number;
   isEditing?: boolean;
   onClick: () => void;
@@ -116,7 +110,7 @@ function CloudStatusIcon({
 }: {
   taskRunStatus?: TaskItemProps["taskRunStatus"];
 }) {
-  if (taskRunStatus === "started" || taskRunStatus === "in_progress") {
+  if (taskRunStatus === "queued" || taskRunStatus === "in_progress") {
     return (
       <Tooltip content="Cloud (running)" side="right">
         <span className="flex items-center justify-center">
@@ -160,7 +154,6 @@ export function TaskItem({
   label,
   isActive,
   workspaceMode,
-  worktreePath,
   isSuspended = false,
   isGenerating,
   isUnread,
@@ -177,58 +170,35 @@ export function TaskItem({
   onEditSubmit,
   onEditCancel,
 }: TaskItemProps) {
-  const isFocused = useFocusStore(
-    selectIsFocusedOnWorktree(worktreePath ?? ""),
-  );
-
-  const isWorktreeTask = workspaceMode === "worktree";
   const isCloudTask = workspaceMode === "cloud";
+  const isTerminalCloud = isCloudTask && isTerminalStatus(taskRunStatus);
 
-  const icon = isSuspended ? (
+  const icon = needsPermission ? (
+    <Tooltip content="Needs permission" side="right">
+      <span className="flex items-center justify-center">
+        <HandPalm size={ICON_SIZE} className="text-blue-11" />
+      </span>
+    </Tooltip>
+  ) : isTerminalCloud ? (
+    <CloudStatusIcon taskRunStatus={taskRunStatus} />
+  ) : isGenerating ? (
+    <DotsCircleSpinner size={ICON_SIZE} className="text-accent-11" />
+  ) : isCloudTask ? (
+    <CloudStatusIcon taskRunStatus={taskRunStatus} />
+  ) : isSuspended ? (
     <Tooltip content="Suspended" side="right">
       <span className="flex items-center justify-center">
         <Pause size={ICON_SIZE} className="text-gray-9" />
       </span>
     </Tooltip>
-  ) : needsPermission ? (
-    <BellRinging size={ICON_SIZE} className="text-blue-11" />
-  ) : isGenerating ? (
-    <DotsCircleSpinner size={ICON_SIZE} className="text-accent-11" />
   ) : isUnread ? (
-    <span className="flex items-center justify-center text-[8px] text-green-11">
-      ■
+    <span className="flex items-center justify-center">
+      <Circle size={8} weight="fill" className="text-green-11" />
     </span>
   ) : isPinned ? (
     <PushPin size={ICON_SIZE} className="text-accent-11" />
-  ) : isCloudTask ? (
-    <CloudStatusIcon taskRunStatus={taskRunStatus} />
-  ) : isWorktreeTask ? (
-    isFocused ? (
-      <Tooltip content="Worktree (syncing)" side="right">
-        <span className="flex items-center justify-center">
-          <ArrowsClockwise
-            size={ICON_SIZE}
-            weight="duotone"
-            className="animate-sync-rotate text-blue-11"
-          />
-        </span>
-      </Tooltip>
-    ) : (
-      <Tooltip content="Worktree" side="right">
-        <span className="flex items-center justify-center">
-          <ArrowsSplit
-            size={ICON_SIZE}
-            style={{ transform: "rotate(270deg)" }}
-          />
-        </span>
-      </Tooltip>
-    )
   ) : (
-    <Tooltip content="Local" side="right">
-      <span className="flex items-center justify-center">
-        <LaptopIcon size={ICON_SIZE} />
-      </span>
-    </Tooltip>
+    <ChatCircle size={ICON_SIZE} className="text-gray-10" />
   );
 
   const timestampNode = timestamp ? (

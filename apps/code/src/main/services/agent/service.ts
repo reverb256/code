@@ -1,5 +1,5 @@
 import fs, { mkdirSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   type Client,
@@ -18,7 +18,7 @@ import {
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
-import { getEffortOptions } from "@posthog/agent/adapters/claude/session/models";
+import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-effort";
 import { Agent } from "@posthog/agent/agent";
 import {
   getAvailableCodexModes,
@@ -36,9 +36,12 @@ import {
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { OnLogCallback } from "@posthog/agent/types";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { IAppMeta } from "@posthog/platform/app-meta";
+import type { IBundledResources } from "@posthog/platform/bundled-resources";
+import type { IPowerManager } from "@posthog/platform/power-manager";
+import type { IStoragePaths } from "@posthog/platform/storage-paths";
 import { isAuthError } from "@shared/errors";
 import type { AcpMessage } from "@shared/types/session-events";
-import { app, powerMonitor } from "electron";
 import { inject, injectable, preDestroy } from "inversify";
 import { MAIN_TOKENS } from "../../di/tokens";
 import { isDevBuild } from "../../utils/env";
@@ -255,6 +258,8 @@ interface SessionConfig {
   effort?: EffortLevel;
   /** Model to use for the session (e.g. "claude-sonnet-4-6") */
   model?: string;
+  /** JSON Schema for structured task output — when set, the agent gets a create_output tool */
+  jsonSchema?: Record<string, unknown> | null;
 }
 
 interface ManagedSession {
@@ -282,20 +287,6 @@ function getAgentSessionId(session: ManagedSession): string {
     throw new Error(`Session ${session.taskRunId} has no agent session ID`);
   }
   return sessionId;
-}
-
-function getClaudeCliPath(): string {
-  const appPath = app.getAppPath();
-  return app.isPackaged
-    ? join(`${appPath}.unpacked`, ".vite/build/claude-cli/cli.js")
-    : join(appPath, ".vite/build/claude-cli/cli.js");
-}
-
-function getCodexBinaryPath(): string {
-  const appPath = app.getAppPath();
-  return app.isPackaged
-    ? join(`${appPath}.unpacked`, ".vite/build/codex-acp/codex-acp")
-    : join(appPath, ".vite/build/codex-acp/codex-acp");
 }
 
 interface PendingPermission {
@@ -336,6 +327,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     agentAuthAdapter: AgentAuthAdapter,
     @inject(MAIN_TOKENS.McpAppsService)
     mcpAppsService: McpAppsService,
+    @inject(MAIN_TOKENS.PowerManager)
+    powerManager: IPowerManager,
+    @inject(MAIN_TOKENS.BundledResources)
+    private readonly bundledResources: IBundledResources,
+    @inject(MAIN_TOKENS.AppMeta)
+    private readonly appMeta: IAppMeta,
+    @inject(MAIN_TOKENS.StoragePaths)
+    private readonly storagePaths: IStoragePaths,
   ) {
     super();
     this.processTracking = processTracking;
@@ -345,7 +344,15 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     this.agentAuthAdapter = agentAuthAdapter;
     this.mcpAppsService = mcpAppsService;
 
-    powerMonitor.on("resume", () => this.checkIdleDeadlines());
+    powerManager.onResume(() => this.checkIdleDeadlines());
+  }
+
+  private getClaudeCliPath(): string {
+    return this.bundledResources.resolve(".vite/build/claude-cli/cli.js");
+  }
+
+  private getCodexBinaryPath(): string {
+    return this.bundledResources.resolve(".vite/build/codex-acp/codex-acp");
   }
 
   /**
@@ -425,11 +432,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   public hasActiveSessions(): boolean {
     for (const session of this.sessions.values()) {
       if (session.promptPending || session.inFlightMcpToolCalls.size > 0) {
-        log.info("Active session found", { sessionId: session.taskRunId });
         return true;
       }
     }
-    log.debug("No active sessions found");
     return false;
   }
 
@@ -561,6 +566,7 @@ When creating pull requests, add the following footer at the end of the PR descr
       customInstructions,
       effort,
       model,
+      jsonSchema,
     } = config;
 
     // Preview config doesn't need a real repo — use a temp directory
@@ -573,7 +579,10 @@ When creating pull requests, add the following footer at the end of the PR descr
       }
 
       for (const proc of this.processTracking.getByTaskId(taskId)) {
-        if (proc.category === "agent" || proc.category === "child") {
+        if (
+          (proc.category === "agent" || proc.category === "child") &&
+          proc.metadata?.taskRunId === taskRunId
+        ) {
           this.processTracking.kill(proc.pid);
         }
       }
@@ -591,7 +600,7 @@ When creating pull requests, add the following footer at the end of the PR descr
       credentials,
       mockNodeDir,
       proxyUrl,
-      claudeCliPath: getClaudeCliPath(),
+      claudeCliPath: this.getClaudeCliPath(),
     });
 
     const isPreview = taskId === "__preview__";
@@ -599,10 +608,10 @@ When creating pull requests, add the following footer at the end of the PR descr
     const agent = new Agent({
       posthog: {
         ...this.agentAuthAdapter.createPosthogConfig(credentials),
-        userAgent: `posthog/desktop.hog.dev; version: ${app.getVersion()}`,
+        userAgent: `posthog/desktop.hog.dev; version: ${this.appMeta.version}`,
       },
       skipLogPersistence: isPreview,
-      localCachePath: join(app.getPath("home"), ".posthog-code"),
+      localCachePath: join(homedir(), ".posthog-code"),
       debug: isDevBuild(),
       onLog: onAgentLog,
     });
@@ -617,9 +626,18 @@ When creating pull requests, add the following footer at the end of the PR descr
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         gatewayUrl: proxyUrl,
-        codexBinaryPath: adapter === "codex" ? getCodexBinaryPath() : undefined,
+        codexBinaryPath:
+          adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         model,
         instructions: adapter === "codex" ? systemPrompt.append : undefined,
+        onStructuredOutput: jsonSchema
+          ? async (output) => {
+              const posthogAPI = agent.getPosthogAPI();
+              if (posthogAPI) {
+                await posthogAPI.updateTaskRun(taskId, taskRunId, { output });
+              }
+            }
+          : undefined,
         processCallbacks: {
           onProcessSpawned: (info) => {
             this.processTracking.register(
@@ -682,7 +700,7 @@ When creating pull requests, add the following footer at the end of the PR descr
         [];
       try {
         externalPlugins = await discoverExternalPlugins({
-          userDataDir: app.getPath("userData"),
+          userDataDir: this.storagePaths.appDataPath,
           repoPath,
         });
       } catch (err) {
@@ -706,14 +724,17 @@ When creating pull requests, add the following footer at the end of the PR descr
       let configOptions: SessionConfigOption[] | undefined;
       let agentSessionId: string;
 
+      // Claude-specific: hydrate session JSONL from PostHog before resuming.
+      // If hydration finds no conversation to restore, skip the resume and
+      // fall through to creating a new session. This avoids a doomed
+      // unstable_resumeSession that would fail with "Resource not found"
       if (isReconnect && config.sessionId) {
         const existingSessionId = config.sessionId;
 
-        // Claude-specific: hydrate session JSONL from PostHog before resuming
         if (adapter !== "codex") {
           const posthogAPI = agent.getPosthogAPI();
           if (posthogAPI) {
-            await hydrateSessionJsonl({
+            const hasSession = await hydrateSessionJsonl({
               sessionId: existingSessionId,
               cwd: repoPath,
               taskId,
@@ -722,8 +743,19 @@ When creating pull requests, add the following footer at the end of the PR descr
               posthogAPI,
               log,
             });
+            if (!hasSession) {
+              log.info(
+                "No session JSONL to resume, creating new session instead",
+                { taskId, taskRunId },
+              );
+              config.sessionId = undefined;
+            }
           }
         }
+      }
+
+      if (isReconnect && config.sessionId) {
+        const existingSessionId = config.sessionId;
 
         // Both adapters implement unstable_resumeSession:
         // - Claude: delegates to SDK's resumeSession with JSONL hydration
@@ -741,6 +773,7 @@ When creating pull requests, add the following footer at the end of the PR descr
             systemPrompt,
             ...(permissionMode && { permissionMode }),
             ...(model != null && { model }),
+            ...(jsonSchema && { jsonSchema }),
             claudeCode: {
               options: claudeCodeOptions,
             },
@@ -763,6 +796,7 @@ When creating pull requests, add the following footer at the end of the PR descr
             systemPrompt,
             ...(permissionMode && { permissionMode }),
             ...(model != null && { model }),
+            ...(jsonSchema && { jsonSchema }),
             claudeCode: {
               options: claudeCodeOptions,
             },
@@ -860,14 +894,6 @@ When creating pull requests, add the following footer at the end of the PR descr
     this.recordActivity(sessionId);
     this.sleepService.acquire(sessionId);
 
-    const promptJson = JSON.stringify(finalPrompt);
-    log.info("Sending prompt to agent", {
-      sessionId,
-      blockCount: finalPrompt.length,
-      blocks: promptJson.slice(0, 10000),
-      totalSize: promptJson.length,
-    });
-
     try {
       const result = await session.clientSideConnection.prompt({
         sessionId: getAgentSessionId(session),
@@ -964,8 +990,6 @@ When creating pull requests, add the following footer at the end of the PR descr
       ) {
         session.config.permissionMode = updatedModeOption.currentValue;
       }
-
-      log.info("Session config option updated", { sessionId, configId, value });
     } catch (err) {
       log.error("Failed to set session config option", {
         sessionId,
@@ -1453,6 +1477,7 @@ For git operations while detached:
         "customInstructions" in params ? params.customInstructions : undefined,
       effort: "effort" in params ? params.effort : undefined,
       model: "model" in params ? params.model : undefined,
+      jsonSchema: "jsonSchema" in params ? params.jsonSchema : undefined,
     };
   }
 
@@ -1718,33 +1743,20 @@ For git operations while detached:
       },
     ];
 
-    if (adapter === "codex") {
+    const effortOpts = getReasoningEffortOptions(adapter, resolvedModelId);
+    if (effortOpts) {
       configOptions.push({
-        id: "reasoning_effort",
-        name: "Reasoning Level",
+        id: adapter === "codex" ? "reasoning_effort" : "effort",
+        name: adapter === "codex" ? "Reasoning Level" : "Effort",
         type: "select",
         currentValue: "high",
-        options: [
-          { value: "low", name: "Low" },
-          { value: "medium", name: "Medium" },
-          { value: "high", name: "High" },
-        ],
+        options: effortOpts,
         category: "thought_level",
-        description: "Controls how much reasoning effort the model uses",
+        description:
+          adapter === "codex"
+            ? "Controls how much reasoning effort the model uses"
+            : "Controls how much effort Claude puts into its response",
       });
-    } else {
-      const effortOpts = getEffortOptions(resolvedModelId);
-      if (effortOpts) {
-        configOptions.push({
-          id: "effort",
-          name: "Effort",
-          type: "select",
-          currentValue: "high",
-          options: effortOpts,
-          category: "thought_level",
-          description: "Controls how much effort Claude puts into its response",
-        });
-      }
     }
 
     return configOptions;
