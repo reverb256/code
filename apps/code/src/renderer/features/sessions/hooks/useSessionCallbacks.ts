@@ -1,5 +1,6 @@
 import { tryExecuteCodeCommand } from "@features/message-editor/commands";
 import { useDraftStore } from "@features/message-editor/stores/draftStore";
+import { xmlToContent } from "@features/message-editor/utils/content";
 import { useTaskViewed } from "@features/sidebar/hooks/useTaskViewed";
 import { trpcClient } from "@renderer/trpc/client";
 import type { Task } from "@shared/types";
@@ -53,8 +54,7 @@ export function useSessionCallbacks({
       try {
         markAsViewed(taskId);
         markActivity(taskId);
-        const result = await getSessionService().sendPrompt(taskId, text);
-        log.info("Prompt completed", { stopReason: result.stopReason });
+        await getSessionService().sendPrompt(taskId, text);
 
         const view = useNavigationStore.getState().view;
         const isViewingTask =
@@ -74,13 +74,10 @@ export function useSessionCallbacks({
 
   const handleCancelPrompt = useCallback(async () => {
     const queuedContent = sessionStoreSetters.dequeueMessagesAsText(taskId);
-    const result = await getSessionService().cancelPrompt(taskId);
-    log.info("Prompt cancelled", { success: result });
+    await getSessionService().cancelPrompt(taskId);
 
     if (queuedContent) {
-      setPendingContent(taskId, {
-        segments: [{ type: "text", text: queuedContent }],
-      });
+      setPendingContent(taskId, xmlToContent(queuedContent));
     }
     requestFocus(taskId);
   }, [taskId, setPendingContent, requestFocus]);

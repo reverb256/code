@@ -22,6 +22,7 @@ import {
   filterReportsBySearch,
 } from "@features/inbox/utils/filterReports";
 import { INBOX_REFETCH_INTERVAL_MS } from "@features/inbox/utils/inboxConstants";
+import { useRepositoryIntegration } from "@hooks/useIntegrations";
 import { Box, Flex, ScrollArea } from "@radix-ui/themes";
 import type { SignalReportsQueryParams } from "@shared/types";
 import { useNavigationStore } from "@stores/navigationStore";
@@ -29,6 +30,7 @@ import { useRendererWindowFocusStore } from "@stores/rendererWindowFocusStore";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { MultiSelectStack } from "./detail/MultiSelectStack";
 import { ReportDetailPane } from "./detail/ReportDetailPane";
+import { GitHubConnectionBanner } from "./list/GitHubConnectionBanner";
 import { ReportListPane } from "./list/ReportListPane";
 import { SignalsToolbar } from "./list/SignalsToolbar";
 
@@ -46,6 +48,9 @@ export function InboxSignalsTab() {
   const suggestedReviewerFilter = useInboxSignalsFilterStore(
     (s) => s.suggestedReviewerFilter,
   );
+
+  // ── GitHub integration ───────────────────────────────────────────────
+  const { hasGithubIntegration } = useRepositoryIntegration();
 
   // ── Signal source configs ───────────────────────────────────────────────
   const { data: signalSourceConfigs } = useSignalSourceConfigs();
@@ -146,6 +151,9 @@ export function InboxSignalsTab() {
     (s) => s.toggleReportSelection,
   );
   const selectRange = useInboxReportSelectionStore((s) => s.selectRange);
+  const selectExactRange = useInboxReportSelectionStore(
+    (s) => s.selectExactRange,
+  );
   const pruneSelection = useInboxReportSelectionStore((s) => s.pruneSelection);
   const clearSelection = useInboxReportSelectionStore((s) => s.clearSelection);
 
@@ -292,25 +300,49 @@ export function InboxSignalsTab() {
     }
   }, [focusListPane, showTwoPaneLayout]);
 
+  // Tracks the cursor position for keyboard navigation (the "moving end" of
+  // Shift+Arrow selection). Separated from `lastClickedId` which acts as the
+  // anchor so that the anchor stays fixed while the cursor extends the range.
+  const keyboardCursorIdRef = useRef<string | null>(null);
+
   const navigateReport = useCallback(
-    (direction: 1 | -1) => {
+    (direction: 1 | -1, shift: boolean) => {
       const list = reportsRef.current;
       if (list.length === 0) return;
 
-      // Find the current position based on the last selected report
-      const currentIds = selectedReportIdsRef.current;
-      const currentId =
-        currentIds.length > 0 ? currentIds[currentIds.length - 1] : null;
-      const currentIndex = currentId
-        ? list.findIndex((r) => r.id === currentId)
+      // Determine cursor position — the item to navigate away from
+      const cursorId =
+        keyboardCursorIdRef.current ??
+        (selectedReportIdsRef.current.length > 0
+          ? selectedReportIdsRef.current[
+              selectedReportIdsRef.current.length - 1
+            ]
+          : null);
+      const cursorIndex = cursorId
+        ? list.findIndex((r) => r.id === cursorId)
         : -1;
       const nextIndex =
-        currentIndex === -1
+        cursorIndex === -1
           ? 0
-          : Math.max(0, Math.min(list.length - 1, currentIndex + direction));
+          : Math.max(0, Math.min(list.length - 1, cursorIndex + direction));
       const nextId = list[nextIndex].id;
 
-      setSelectedReportIds([nextId]);
+      if (shift) {
+        // Anchor is the store's lastClickedId — the point where shift-selection started.
+        // selectExactRange replaces the selection with the exact range from anchor to cursor,
+        // so reversing direction correctly contracts the selection.
+        const anchor =
+          useInboxReportSelectionStore.getState().lastClickedId ?? nextId;
+        selectExactRange(
+          anchor,
+          nextId,
+          list.map((r) => r.id),
+        );
+        keyboardCursorIdRef.current = nextId;
+      } else {
+        setSelectedReportIds([nextId]);
+        keyboardCursorIdRef.current = nextId;
+      }
 
       const container = leftPaneRef.current;
       const row = container?.querySelector<HTMLElement>(
@@ -326,7 +358,7 @@ export function InboxSignalsTab() {
       row.style.scrollMarginTop = `${stickyHeaderHeight}px`;
       row.scrollIntoView({ block: "nearest" });
     },
-    [setSelectedReportIds],
+    [setSelectedReportIds, selectExactRange],
   );
 
   // Window-level keyboard handler so arrow keys work regardless of which
@@ -347,10 +379,10 @@ export function InboxSignalsTab() {
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        navigateReport(1);
+        navigateReport(1, e.shiftKey);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        navigateReport(-1);
+        navigateReport(-1, e.shiftKey);
       } else if (
         e.key === "Escape" &&
         selectedReportIdsRef.current.length > 0
@@ -447,12 +479,14 @@ export function InboxSignalsTab() {
                     filteredCount={reports.length}
                     isSearchActive={!!searchQuery.trim()}
                     livePolling={inboxPollingActive}
+                    isFetching={isFetching}
                     readyCount={readyCount}
                     processingCount={processingCount}
                     pipelinePausedUntil={signalProcessingState?.paused_until}
                     reports={reports}
                     effectiveBulkIds={selectedReportIds}
                     onToggleSelectAll={handleToggleSelectAll}
+                    onConfigureSources={() => setSourcesDialogOpen(true)}
                   />
                 </Box>
                 <ReportListPane
@@ -474,6 +508,8 @@ export function InboxSignalsTab() {
                 />
               </Flex>
             </ScrollArea>
+
+            <GitHubConnectionBanner />
 
             {/* Resize handle */}
             <Box
@@ -528,6 +564,7 @@ export function InboxSignalsTab() {
               pipelinePausedUntil={signalProcessingState?.paused_until}
               searchDisabledReason={searchDisabledReason}
               hideFilters
+              onConfigureSources={() => setSourcesDialogOpen(true)}
             />
             <SkeletonBackdrop />
           </Flex>
@@ -544,7 +581,7 @@ export function InboxSignalsTab() {
             }}
           >
             <Box style={{ pointerEvents: "auto" }}>
-              {!hasSignalSources ? (
+              {!hasSignalSources || !hasGithubIntegration ? (
                 <WelcomePane onEnableInbox={() => setSourcesDialogOpen(true)} />
               ) : (
                 <WarmingUpPane
@@ -562,6 +599,7 @@ export function InboxSignalsTab() {
         open={sourcesDialogOpen}
         onOpenChange={setSourcesDialogOpen}
         hasSignalSources={hasSignalSources}
+        hasGithubIntegration={hasGithubIntegration}
       />
     </>
   );

@@ -1,5 +1,5 @@
+import type { CloudTaskPermissionRequestUpdate } from "@shared/types";
 import type { StoredLogEntry } from "@shared/types/session-events";
-import { net } from "electron";
 import { inject, injectable, preDestroy } from "inversify";
 import { MAIN_TOKENS } from "../../di/tokens";
 import { logger } from "../../utils/logger";
@@ -119,6 +119,24 @@ function isSseErrorEvent(data: unknown): data is SseErrorEventData {
     data !== null &&
     "error" in data &&
     typeof (data as SseErrorEventData).error === "string"
+  );
+}
+
+interface PermissionRequestEventData {
+  type: "permission_request";
+  requestId: string;
+  toolCall: CloudTaskPermissionRequestUpdate["toolCall"];
+  options: CloudTaskPermissionRequestUpdate["options"];
+}
+
+function isPermissionRequestEvent(
+  data: unknown,
+): data is PermissionRequestEventData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: string }).type === "permission_request" &&
+    typeof (data as { requestId?: string }).requestId === "string"
   );
 }
 
@@ -281,17 +299,13 @@ export class CloudTaskService extends TypedEventEmitter<CloudTaskEvents> {
     };
 
     try {
-      const response = await this.authService.authenticatedFetch(
-        net.fetch,
-        url,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
+      const response = await this.authService.authenticatedFetch(fetch, url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify(body),
+      });
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
@@ -654,6 +668,16 @@ export class CloudTaskService extends TypedEventEmitter<CloudTaskEvents> {
 
     watcher.reconnectAttempts = 0;
 
+    if (
+      event.event === "keepalive" ||
+      (typeof event.data === "object" &&
+        event.data !== null &&
+        "type" in event.data &&
+        event.data.type === "keepalive")
+    ) {
+      return;
+    }
+
     if (isTaskRunStateEvent(event.data)) {
       if (this.applyTaskRunState(watcher, event.data)) {
         if (!watcher.isBootstrapping && !isTerminalStatus(watcher.lastStatus)) {
@@ -669,6 +693,18 @@ export class CloudTaskService extends TypedEventEmitter<CloudTaskEvents> {
           });
         }
       }
+      return;
+    }
+
+    if (isPermissionRequestEvent(event.data)) {
+      this.emit(CloudTaskEvent.Update, {
+        taskId: watcher.taskId,
+        runId: watcher.runId,
+        kind: "permission_request" as const,
+        requestId: event.data.requestId,
+        toolCall: event.data.toolCall,
+        options: event.data.options,
+      });
       return;
     }
 
@@ -958,7 +994,7 @@ export class CloudTaskService extends TypedEventEmitter<CloudTaskEvents> {
 
     try {
       const authedResponse = await this.authService.authenticatedFetch(
-        net.fetch,
+        fetch,
         url.toString(),
         {
           method: "GET",
@@ -1021,7 +1057,7 @@ export class CloudTaskService extends TypedEventEmitter<CloudTaskEvents> {
 
     try {
       const authedResponse = await this.authService.authenticatedFetch(
-        net.fetch,
+        fetch,
         url,
         {
           method: "GET",
